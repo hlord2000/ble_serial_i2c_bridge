@@ -84,4 +84,4 @@ int twi_slave_init(void) {
 	return 0;
 }
 
-SYS_INIT(twi_slave_init, PRE_KERNEL, 50);
+SYS_INIT(twi_slave_init, POST_KERNEL, 50);
