@@ -1,8 +1,7 @@
 # Command set:
-Addr: 0x69
+Addr: 0x54
 
-# We will use AES-CTR with a nonce stored in non-volatile memory on the EC.
-# Critically, nonces cannot be repeated.
+We will use AES-CTR with a nonce stored in non-volatile memory on the EC.
 
 0x00 - Advertising enable | W/R
 0x01 - TX Buffer length   | W/R
