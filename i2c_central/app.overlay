@@ -1,0 +1,7 @@
+&arduino_i2c {
+	peripheral: peripheral@54 {
+		compatible = "i2c-device";
+		reg = <0x54>;
+		label = "Peripheral";
+	};
+};

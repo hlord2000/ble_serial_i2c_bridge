@@ -4,5 +4,12 @@ project(peripheral_nus)
 
 target_sources(app PRIVATE
         src/main.c
-		src/twi_slave.c
+		src/i2c_peripheral.c
+		src/ble_peripheral.c
+		../common/src/crypto.c
+)
+
+target_include_directories(app PRIVATE 
+		../common/inc/
+		inc/
 )
