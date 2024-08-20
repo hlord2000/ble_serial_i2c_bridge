@@ -29,10 +29,10 @@ LOG_MODULE_REGISTER(i2c_peripheral);
 
 #define NODE_TWIS   DT_NODELABEL(twi_peripheral)
 
-#define TWIS_MEMORY_SECTION                                                                        \
+#define TWIS_MEMORY_SECTION                                                                    
 	COND_CODE_1(DT_NODE_HAS_PROP(NODE_TWIS, memory_regions),                                   \
-		    (__attribute__((__section__(                                                   \
-			    LINKER_DT_NODE_REGION_NAME(DT_PHANDLE(NODE_TWIS, memory_regions)))))), \
+		    (__attribute__((__section__(                                                       \
+			    LINKER_DT_NODE_REGION_NAME(DT_PHANDLE(NODE_TWIS, memory_regions)))))),         \
 		    ())
 
 static const nrfx_twis_t twis = NRFX_TWIS_INSTANCE(I2C_S_INSTANCE);
@@ -90,19 +90,34 @@ void i2c_peripheral_handler(nrfx_twis_evt_t const *p_event)
 		encrypt_ctr_aes(NULL, command_registers[cmd_idx].data, 16, cipherdata, 16);
 		nrfx_twis_tx_prepare(&twis, cipherdata, 16);
 		break;
+
 	case NRFX_TWIS_EVT_READ_DONE:
 		LOG_INF("Read done\r\n");
 		break;
+
 	case NRFX_TWIS_EVT_WRITE_REQ:
 		memset(i2c_rx_buffer, 0, RX_BUFFER_SIZE);
 		nrfx_twis_rx_prepare(&twis, i2c_rx_buffer, RX_BUFFER_SIZE);
 		break;
+
 	case NRFX_TWIS_EVT_WRITE_DONE:
-		struct i2c_packet *packet = (struct i2c_packet *)i2c_rx_buffer;
-		uint8_t plaintext[8];
-		decrypt_ctr_aes(packet->nonce, packet->ciphertext, sizeof(packet->ciphertext), plaintext, sizeof(plaintext));
-		k_msgq_put(&i2c_msgq, i2c_rx_buffer, K_NO_WAIT);
+		if (p_event->data.rx_amount == sizeof(struct encrypted_packet)) {
+			struct encrypted_packet *enc_packet = (struct encrypted_packet *)i2c_rx_buffer;
+			struct decrypted_packet dec_packet;
+			decrypt_ctr_aes(
+					enc_packet->nonce, 
+					enc_packet->ciphertext, 
+					sizeof(enc_packet->ciphertext), 
+					dec_packet.plaintext, 
+					sizeof(dec_packet.plaintext)
+			);
+			if (dec_packet.magic == I2C_PACKET_MAGIC) {
+				cmd_idx = dec_packet.reg;
+				k_msgq_put(&i2c_msgq, i2c_rx_buffer, K_NO_WAIT);
+			}
+		}
 		break;
+
 	default:
 		LOG_INF("TWIS event: %d\n", p_event->type);
 		break;
