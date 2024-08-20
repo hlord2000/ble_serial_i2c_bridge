@@ -13,6 +13,8 @@
 
 #include "crypto.h"
 #include "shared_keys.h"
+#include "i2c_packet.h"
+#include "ble_packet.h"
 
 LOG_MODULE_REGISTER(crypto);
 
@@ -34,8 +36,8 @@ static int import_input_key(void) {
 
 	/* Import the master key into the keystore */
 	status = psa_import_key(&key_attributes,
-				shared_key_i2c,
-				sizeof(shared_key_i2c),
+				shared_key,
+				sizeof(shared_key),
 				&key_id);
 	if (status != PSA_SUCCESS) {
 		LOG_INF("PSA import key fail (err: %d)", status);
@@ -49,7 +51,7 @@ static int import_input_key(void) {
 	return 0;
 }
 
-int encrypt_ctr_aes(uint8_t *iv_buf, uint8_t *plaintext, size_t plain_len, uint8_t *ciphertext,
+static int encrypt_ctr_aes(uint8_t *iv_buf, uint8_t *plaintext, size_t plain_len, uint8_t *ciphertext,
 					size_t cipher_len) {
 	uint32_t olen;
 	psa_status_t status;
@@ -67,10 +69,11 @@ int encrypt_ctr_aes(uint8_t *iv_buf, uint8_t *plaintext, size_t plain_len, uint8
 	if (iv_buf == NULL) {
 		uint8_t local_iv_buf[16] = {0};
 		iv_buf = local_iv_buf;
+		LOG_INF("Using randomly generated IV");
 	}
 
 	/* Generate a random IV */
-	status = psa_cipher_generate_iv(&operation, iv_buf, 8,
+	status = psa_cipher_generate_iv(&operation, iv_buf, 16,
 					&olen);
 	if (status != PSA_SUCCESS) {
 		LOG_INF("psa_cipher_generate_iv failed! (Error: %d)", status);
@@ -107,14 +110,48 @@ int encrypt_ctr_aes(uint8_t *iv_buf, uint8_t *plaintext, size_t plain_len, uint8
 	}
 
 	LOG_INF("Encryption successful!\r\n");
-	LOG_HEXDUMP_INF(iv_buf, sizeof(iv_buf), "IV");
+	LOG_HEXDUMP_INF(iv_buf, 16, "IV");
 	LOG_HEXDUMP_INF(plaintext, plain_len, "Plaintext");
 	LOG_HEXDUMP_INF(ciphertext, cipher_len, "Encrypted text");
 
 	return 0;
 }
 
-int decrypt_ctr_aes(uint8_t *iv_buf, uint8_t *ciphertext, size_t cipher_len, uint8_t *plaintext, 
+int encrypt_i2c_packet(struct i2c_reg_packet *plaintext, struct i2c_reg_enc_packet *encrypted) {
+	int err;
+
+	err = encrypt_ctr_aes(
+				encrypted->nonce, 
+				plaintext->data, 
+				I2C_REG_PACKET_BYTES,
+				encrypted->ciphertext, 
+				I2C_REG_PACKET_BYTES
+	);
+	if (err < 0) {
+		LOG_ERR("I2C packet encrypt fail (err: %d)", err);
+		return err;
+	}
+	return 0;
+}
+
+int encrypt_ble_packet(struct ble_packet *plaintext, struct ble_enc_packet *encrypted) {
+	int err;
+
+	err = encrypt_ctr_aes(
+				encrypted->nonce, 
+				plaintext->data, 
+				BLE_PACKET_BYTES,
+				encrypted->ciphertext, 
+				BLE_PACKET_BYTES
+	);
+	if (err < 0) {
+		LOG_ERR("BLE packet encrypt fail (err: %d)", err);
+		return err;
+	}
+	return 0;
+}
+
+static int decrypt_ctr_aes(uint8_t *iv_buf, uint8_t *ciphertext, size_t cipher_len, uint8_t *plaintext, 
 					size_t plain_len) {
 	uint32_t olen;
 	psa_status_t status;
@@ -167,6 +204,41 @@ int decrypt_ctr_aes(uint8_t *iv_buf, uint8_t *ciphertext, size_t cipher_len, uin
 	}
 
 	return 0;
+}
+
+int decrypt_i2c_packet(struct i2c_reg_packet *plaintext, struct i2c_reg_enc_packet *encrypted) {
+	int err;
+
+	err = decrypt_ctr_aes(
+				encrypted->nonce, 
+				encrypted->ciphertext, 
+				I2C_REG_PACKET_BYTES,
+				plaintext->data, 
+				I2C_REG_PACKET_BYTES
+	);
+	if (err < 0) {
+		LOG_ERR("I2C packet decrypt fail (err: %d)", err);
+		return err;
+	}
+	return 0;
+}
+
+int decrypt_ble_packet(struct ble_packet *plaintext, struct ble_enc_packet *encrypted) {
+	int err;
+
+	err = decrypt_ctr_aes(
+				encrypted->nonce, 
+				encrypted->ciphertext, 
+				BLE_PACKET_BYTES,
+				plaintext->data, 
+				BLE_PACKET_BYTES
+	);
+	if (err < 0) {
+		LOG_ERR("BLE packet decrypt fail (err: %d)", err);
+		return err;
+	}
+	return 0;
+
 }
 
 static int crypto_init(void) {

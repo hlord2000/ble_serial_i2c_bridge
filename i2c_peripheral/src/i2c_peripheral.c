@@ -13,7 +13,7 @@
 LOG_MODULE_REGISTER(i2c_peripheral);
 
 #include "crypto.h"
-#include "i2c_peripheral.h"
+#include "i2c_registers.h"
 
 #if CONFIG_NRFX_TWIS1
 #define I2C_S_INSTANCE 1
@@ -37,84 +37,61 @@ LOG_MODULE_REGISTER(i2c_peripheral);
 
 static const nrfx_twis_t twis = NRFX_TWIS_INSTANCE(I2C_S_INSTANCE);
 
-#define RX_BUFFER_SIZE  128
+#define RX_BUFFER_SIZE 256
 static uint8_t i2c_rx_buffer[RX_BUFFER_SIZE] TWIS_MEMORY_SECTION;
 
-K_MSGQ_DEFINE(i2c_msgq, sizeof(struct i2c_packet), 16, 1);
-
-struct i2c_cmd_reg command_registers[I2C_REG_END] = {
-	{ /* I2C_REG_STATUS */
-		.data = {},
-		.read = true,
-		.write = true,
-	},
-	{ /* I2C_REG_DEV_ID */
-		.data = {},
-		.read = true,
-		.write = false,
-	}, 
-	{ /* I2C_REG_ADV_ENABLE */
-		.data = {},
-		.read = true,
-		.write = true,
-	}, 
-	{ /* I2C_REG_TX_BUF */
-		.data = {},
-		.read = true,
-		.write = true,
-	}, 
-	{ /* I2C_REG_TX_BUF_LEN */
-		.data = {},
-		.read = true,
-		.write = true,
-	}, 
-	{ /* I2C_REG_RX_BUF */
-		.data = {},
-		.read = true,
-		.write = true,
-	}, 
-	{ /* I2C_REG_RX_BUF_LEN */
-		.data = {},
-		.read = true,
-		.write = true,
-	}, 
-};
+K_MSGQ_DEFINE(i2c_msgq, sizeof(struct i2c_reg_packet), 16, 1);
 
 enum i2c_cmds cmd_idx = I2C_REG_STATUS;
 void i2c_peripheral_handler(nrfx_twis_evt_t const *p_event)
 {
+	struct i2c_reg_enc_packet ciphertext;
+	struct i2c_reg_packet plaintext;
+
 	switch (p_event->type) {
 	case NRFX_TWIS_EVT_READ_REQ:
-		LOG_INF("Read req\r\n");
-		uint8_t cipherdata[16];
-		encrypt_ctr_aes(NULL, command_registers[cmd_idx].data, 16, cipherdata, 16);
-		nrfx_twis_tx_prepare(&twis, cipherdata, 16);
+		LOG_INF("Read req");
+
+		plaintext.magic = I2C_PACKET_MAGIC;
+		plaintext.reg = cmd_idx;
+		memcpy(plaintext.plaintext, command_registers[cmd_idx].data, DATA_SIZE_BYTES);
+
+		encrypt_i2c_packet(&plaintext, &ciphertext);
+		nrfx_twis_tx_prepare(&twis, &ciphertext.data, I2C_PACKET_SIZE_BYTES);
 		break;
 
 	case NRFX_TWIS_EVT_READ_DONE:
-		LOG_INF("Read done\r\n");
+		LOG_INF("Read done");
 		break;
 
 	case NRFX_TWIS_EVT_WRITE_REQ:
+		LOG_INF("Write req");
 		memset(i2c_rx_buffer, 0, RX_BUFFER_SIZE);
 		nrfx_twis_rx_prepare(&twis, i2c_rx_buffer, RX_BUFFER_SIZE);
 		break;
 
 	case NRFX_TWIS_EVT_WRITE_DONE:
-		if (p_event->data.rx_amount == sizeof(struct encrypted_packet)) {
-			struct encrypted_packet *enc_packet = (struct encrypted_packet *)i2c_rx_buffer;
-			struct decrypted_packet dec_packet;
-			decrypt_ctr_aes(
-					enc_packet->nonce, 
-					enc_packet->ciphertext, 
-					sizeof(enc_packet->ciphertext), 
-					dec_packet.plaintext, 
-					sizeof(dec_packet.plaintext)
-			);
-			if (dec_packet.magic == I2C_PACKET_MAGIC) {
-				cmd_idx = dec_packet.reg;
-				k_msgq_put(&i2c_msgq, i2c_rx_buffer, K_NO_WAIT);
+		LOG_INF("Write done");
+		// If the received data is in the proper amount...
+		if (p_event->data.rx_amount == sizeof(struct i2c_reg_enc_packet)) {
+			LOG_HEXDUMP_INF(i2c_rx_buffer, I2C_PACKET_SIZE_BYTES, "i2c rx");
+			decrypt_i2c_packet(&plaintext, (struct i2c_reg_enc_packet *)i2c_rx_buffer);
+			// If our magic value is decrypted correctly...
+			if (plaintext.magic == I2C_PACKET_MAGIC) {
+				cmd_idx = plaintext.reg;
+				// If the command index is valid...
+				if (cmd_idx < I2C_REG_END) {
+					cmd_idx = plaintext.reg;
+					k_msgq_put(&i2c_msgq, &plaintext, K_NO_WAIT);
+				} else {
+					LOG_ERR("Invalid command index: %d", cmd_idx);
+				}
+			} else {
+				cmd_idx = I2C_REG_STATUS;
+				LOG_ERR("Invalid I2C packet magic");
 			}
+		} else {
+			LOG_ERR("Invalid encrypted packet length: %d", p_event->data.rx_amount);
 		}
 		break;
 
@@ -135,7 +112,7 @@ static int i2c_peripheral_init(void)
 
 	ret = nrfx_twis_init(&twis, &config, i2c_peripheral_handler);
 	if (ret != NRFX_SUCCESS) {
-		LOG_ERR("Init failed: %d\r\n", ret);
+		LOG_ERR("Init failed: %d", ret);
 		return -1;
 	}
 
@@ -146,7 +123,7 @@ static int i2c_peripheral_init(void)
 		    NRFX_TWIS_INST_HANDLER_GET(I2C_S_INSTANCE), NULL, 0);
 
 	nrfx_twis_enable(&twis);
-	LOG_INF("Enabled TWIS\r\n");
+	LOG_INF("Enabled TWIS");
 	return 0;
 }
 

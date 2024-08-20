@@ -3,7 +3,7 @@ find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
 project(peripheral_nus)
 
 target_sources(app PRIVATE
-        src/main.c
+        src/i2c_registers.c
 		src/i2c_peripheral.c
 		src/ble_peripheral.c
 		../common/src/crypto.c
