@@ -200,3 +200,17 @@ After authentication the central subscribes to notifications from the peripheral
 On the I2C side of the link, communications are similarly encrypted. The I2C peripheral uses a separate interrupt line to notify the I2C central of newly available data and automatically sends any data over BLE to the connected central as it becomes available.
 
 The I2C peripheral implements a number of 16-byte wide registers. When a command is written from the I2C central, the register value's associated read or write function is called in "i2c_periphral/src/i2c_registers.c"
+
+---
+
+## Example I2C Transactions
+
+Receive:
+<p align="center">
+  <img src="img/ble_receive.png" alt="BLE Receive">
+</p>
+
+Transmit:
+<p align="center">
+  <img src="img/ble_transmit.png" alt="BLE Transmit">
+</p>
