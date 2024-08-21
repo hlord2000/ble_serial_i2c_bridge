@@ -12,6 +12,7 @@ DATA_SIZE_BYTES = 16
 BLE_PACKET_SIZE_BYTES = NONCE_SIZE_BYTES + DATA_SIZE_BYTES + 1
 BLE_PACKET_BYTES = DATA_SIZE_BYTES + 1
 BLE_PACKET_MAGIC = 0xBB
+DEVICE_NAME = "Zephyr"
 
 # UUID definitions
 BT_UUID_I2C_BRIDGE_SVC = "5914f300-2155-43e8-a446-10de62953d40"
@@ -62,17 +63,19 @@ def scan_for_devices(adapter):
     print("Scanning for devices...")
     adapter.set_callback_on_scan_start(lambda: print("Scan started."))
     adapter.set_callback_on_scan_stop(lambda: print("Scan complete."))
-    adapter.set_callback_on_scan_found(lambda peripheral: print(f"Found {peripheral.identifier()} [{peripheral.address()}]"))
+    adapter.set_callback_on_scan_found(lambda peripheral: print(f"Found {peripheral.identifier()} [{peripheral.address()}]") if peripheral.identifier() == DEVICE_NAME else None)
     adapter.scan_for(5000)
     return adapter.scan_get_results()
 
 def select_device(peripherals):
+    dev_idx = 0
     print("\nAvailable devices:")
     for i, peripheral in enumerate(peripherals):
         print(f"{i}: {peripheral.identifier()} [{peripheral.address()}]")
+        if (peripheral.identifier() == DEVICE_NAME):
+            dev_idx = i
 
-    choice = int(input("Select a device (enter the number): "))
-    return peripherals[choice]
+    return peripherals[dev_idx]
 
 def connect_to_device(peripheral):
     print(f"Connecting to: {peripheral.identifier()} [{peripheral.address()}]")
