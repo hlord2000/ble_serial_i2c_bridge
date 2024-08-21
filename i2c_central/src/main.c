@@ -45,6 +45,7 @@ static int i2c_bridge_read(struct i2c_reg_packet *plaintext, enum i2c_cmds cmd) 
 		LOG_ERR("I2C write/read failed (err: %d)", result);
 		return -1;
 	}
+	LOG_HEXDUMP_INF(results_buf, I2C_PACKET_SIZE_BYTES, "Ciphertext:");
 
     result = decrypt_i2c_packet(plaintext, (struct i2c_reg_enc_packet *)results_buf);
 	if (result < 0) {
@@ -58,17 +59,16 @@ static int i2c_bridge_read(struct i2c_reg_packet *plaintext, enum i2c_cmds cmd) 
 static void read_work_handler(struct k_work *work)
 {
 	struct i2c_reg_packet plaintext;
+	LOG_INF("I2C Packet");
     i2c_bridge_read(&plaintext, I2C_REG_RX_BUF);
-	LOG_HEXDUMP_INF(plaintext.plaintext, sizeof(plaintext.plaintext), "Received data:");
+	LOG_HEXDUMP_INF(plaintext.plaintext, sizeof(plaintext.plaintext), "Plaintext: ");
 }
 
 K_WORK_DEFINE(read_work, read_work_handler);
 
-
 static struct gpio_callback data_ready_cb_data;
 
 void data_ready_cb(const struct device *dev, struct gpio_callback *cb, uint32_t pins) {
-	LOG_INF("Data ready");
 	k_work_submit(&read_work);
 }
 
@@ -153,6 +153,10 @@ static int cmd_write_tx_reg(const struct shell *shell, size_t argc, char **argv)
     }
 
     shell_print(shell, "Successfully wrote to TX register");
+	shell_print(shell, "Plaintext: ");
+	shell_hexdump(shell, plaintext.plaintext, sizeof(plaintext.plaintext));
+	shell_print(shell, "Ciphertext: ");
+	shell_hexdump(shell, ciphertext.data, sizeof(ciphertext.data));
     return 0;
 }
 
@@ -163,14 +167,15 @@ static int cmd_read_rx_reg(const struct shell *shell, size_t argc, char **argv)
         return -EINVAL;
     }
 
+    shell_print(shell, "Successfully read from RX register");
     struct i2c_reg_packet plaintext = {0};
     int result = i2c_bridge_read(&plaintext, I2C_REG_RX_BUF);
     if (result < 0) {
         shell_error(shell, "Failed to read from RX register");
         return result;
     }
-
-    shell_print(shell, "RX register contents: %s", plaintext.plaintext);
+	shell_print(shell, "Plaintext: ");
+	shell_hexdump(shell, plaintext.plaintext, sizeof(plaintext.plaintext));
     return 0;
 }
 

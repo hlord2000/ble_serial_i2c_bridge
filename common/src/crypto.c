@@ -40,7 +40,7 @@ static int import_input_key(void) {
 				sizeof(shared_key),
 				&key_id);
 	if (status != PSA_SUCCESS) {
-		LOG_INF("PSA import key fail (err: %d)", status);
+		LOG_ERR("PSA import key fail (err: %d)", status);
 		return status;
 	}
 
@@ -57,26 +57,26 @@ static int encrypt_ctr_aes(uint8_t *iv_buf, uint8_t *plaintext, size_t plain_len
 	psa_status_t status;
 	psa_cipher_operation_t operation = PSA_CIPHER_OPERATION_INIT;
 
-	LOG_INF("Encrypting using AES CTR MODE...");
+	LOG_DBG("Encrypting using AES CTR MODE...");
 
 	/* Setup the encryption operation */
 	status = psa_cipher_encrypt_setup(&operation, key_id, PSA_ALG_CTR);
 	if (status != PSA_SUCCESS) {
-		LOG_INF("psa_cipher_encrypt_setup failed! (Error: %d)", status);
+		LOG_ERR("psa_cipher_encrypt_setup failed! (Error: %d)", status);
 		return status;
 	}
 
 	if (iv_buf == NULL) {
 		uint8_t local_iv_buf[16] = {0};
 		iv_buf = local_iv_buf;
-		LOG_INF("Using randomly generated IV");
+		LOG_DBG("Using randomly generated IV");
 	}
 
 	/* Generate a random IV */
 	status = psa_cipher_generate_iv(&operation, iv_buf, 16,
 					&olen);
 	if (status != PSA_SUCCESS) {
-		LOG_INF("psa_cipher_generate_iv failed! (Error: %d)", status);
+		LOG_ERR("psa_cipher_generate_iv failed! (Error: %d)", status);
 		return status;
 	}
 
@@ -88,7 +88,7 @@ static int encrypt_ctr_aes(uint8_t *iv_buf, uint8_t *plaintext, size_t plain_len
 							   cipher_len,
 							   &olen);
 	if (status != PSA_SUCCESS) {
-		LOG_INF("psa_cipher_update failed! (Error: %d)", status);
+		LOG_ERR("psa_cipher_update failed! (Error: %d)", status);
 		return status;
 	}
 
@@ -98,21 +98,21 @@ static int encrypt_ctr_aes(uint8_t *iv_buf, uint8_t *plaintext, size_t plain_len
 							   cipher_len - olen,
 							   &olen);
 	if (status != PSA_SUCCESS) {
-		LOG_INF("psa_cipher_finish failed! (Error: %d)", status);
+		LOG_ERR("psa_cipher_finish failed! (Error: %d)", status);
 		return status;
 	}
 
 	/* Clean up cipher operation context */
 	status = psa_cipher_abort(&operation);
 	if (status != PSA_SUCCESS) {
-		LOG_INF("psa_cipher_abort failed! (Error: %d)", status);
+		LOG_ERR("psa_cipher_abort failed! (Error: %d)", status);
 		return status;
 	}
 
-	LOG_INF("Encryption successful!\r\n");
-	LOG_HEXDUMP_INF(plaintext, plain_len, "Plaintext");
-	LOG_HEXDUMP_INF(iv_buf, 16, "IV");
-	LOG_HEXDUMP_INF(ciphertext, cipher_len, "Encrypted text");
+	LOG_DBG("Encryption successful!\r\n");
+	LOG_HEXDUMP_DBG(plaintext, plain_len, "Plaintext");
+	LOG_HEXDUMP_DBG(iv_buf, 16, "IV");
+	LOG_HEXDUMP_DBG(ciphertext, cipher_len, "Encrypted text");
 
 	return 0;
 }
@@ -157,19 +157,19 @@ static int decrypt_ctr_aes(uint8_t *iv_buf, uint8_t *ciphertext, size_t cipher_l
 	psa_status_t status;
 	psa_cipher_operation_t operation = PSA_CIPHER_OPERATION_INIT;
 
-	LOG_INF("Decrypting using AES CTR MODE...");
+	LOG_DBG("Decrypting using AES CTR MODE...");
 
 	/* Setup the decryption operation */
 	status = psa_cipher_decrypt_setup(&operation, key_id, PSA_ALG_CTR);
 	if (status != PSA_SUCCESS) {
-		LOG_INF("psa_cipher_decrypt_setup failed! (Error: %d)", status);
+		LOG_ERR("psa_cipher_decrypt_setup failed! (Error: %d)", status);
 		return status;
 	}
 
 	/* Set the IV to the one generated during encryption */
 	status = psa_cipher_set_iv(&operation, iv_buf, AES_BLOCK_SIZE);
 	if (status != PSA_SUCCESS) {
-		LOG_INF("psa_cipher_set_iv failed! (Error: %d)", status);
+		LOG_ERR("psa_cipher_set_iv failed! (Error: %d)", status);
 		return status;
 	}
 
@@ -180,7 +180,7 @@ static int decrypt_ctr_aes(uint8_t *iv_buf, uint8_t *ciphertext, size_t cipher_l
 							   plaintext,
 							   plain_len, &olen);
 	if (status != PSA_SUCCESS) {
-		LOG_INF("psa_cipher_update failed! (Error: %d)", status);
+		LOG_ERR("psa_cipher_update failed! (Error: %d)", status);
 		return status;
 	}
 
@@ -190,11 +190,9 @@ static int decrypt_ctr_aes(uint8_t *iv_buf, uint8_t *ciphertext, size_t cipher_l
 							   plain_len - olen,
 							   &olen);
 	if (status != PSA_SUCCESS) {
-		LOG_INF("psa_cipher_finish failed! (Error: %d)", status);
+		LOG_ERR("psa_cipher_finish failed! (Error: %d)", status);
 		return status;
 	}
-
-	LOG_HEXDUMP_INF(plaintext, plain_len, "Decrypted text");
 
 	/* Clean up cipher operation context */
 	status = psa_cipher_abort(&operation);
@@ -203,10 +201,10 @@ static int decrypt_ctr_aes(uint8_t *iv_buf, uint8_t *ciphertext, size_t cipher_l
 		return status;
 	}
 
-	LOG_INF("Decryption successful!\r\n");
-	LOG_HEXDUMP_INF(ciphertext, cipher_len, "Encrypted text");
-	LOG_HEXDUMP_INF(iv_buf, 16, "IV");
-	LOG_HEXDUMP_INF(plaintext, plain_len, "Plaintext");
+	LOG_DBG("Decryption successful!\r\n");
+	LOG_HEXDUMP_DBG(ciphertext, cipher_len, "Encrypted text");
+	LOG_HEXDUMP_DBG(iv_buf, 16, "IV");
+	LOG_HEXDUMP_DBG(plaintext, plain_len, "Plaintext");
 
 	return 0;
 }

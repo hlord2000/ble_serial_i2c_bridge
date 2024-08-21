@@ -3,8 +3,10 @@
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/logging/log.h>
 
+#include "crypto.h"
 #include "i2c_registers.h"
 #include "i2c_packet.h"
+#include "ble_peripheral.h"
 #include "ble_packet.h"
 
 LOG_MODULE_REGISTER(i2c_registers);
@@ -67,6 +69,7 @@ static int i2c_reg_advertising_handler(struct i2c_reg_packet *packet) {
 	if (packet->read) {
 		return 0;
 	}
+	return 0;
 }
 
 static int i2c_reg_connection_handler(struct i2c_reg_packet *packet) {
@@ -74,6 +77,7 @@ static int i2c_reg_connection_handler(struct i2c_reg_packet *packet) {
 	if (packet->read) {
 		return 0;
 	}
+	return 0;
 }
 
 static int i2c_reg_power_handler(struct i2c_reg_packet *packet) {
@@ -81,6 +85,7 @@ static int i2c_reg_power_handler(struct i2c_reg_packet *packet) {
 	if (packet->read) {
 		return 0;
 	}
+	return 0;
 }
 
 static int i2c_reg_tx_buf_handler(struct i2c_reg_packet *packet) {
@@ -96,14 +101,15 @@ static int i2c_reg_tx_buf_handler(struct i2c_reg_packet *packet) {
 
 		struct ble_enc_packet ciphertext;
 		encrypt_ble_packet(&plaintext, &ciphertext);
-
 		i2c_bridge_transmit(&ciphertext);
+		LOG_HEXDUMP_INF(plaintext.plaintext, sizeof(plaintext.plaintext), "Plaintext: ");
+		LOG_HEXDUMP_INF(ciphertext.data, sizeof(ciphertext.data), "Ciphertext: ");
+		LOG_INF("Sending to BLE central...");
 	}
+	return 0;
 }
 
 static int i2c_reg_rx_buf_handler(struct i2c_reg_packet *packet) {
-	LOG_INF("RX buf packet");
-	LOG_INF("Read cmd? %d", packet->read);
 	if (packet->read) {
 		int err = gpio_pin_set_dt(&data_ready, 0);
 		if (err < 0) {
@@ -111,6 +117,7 @@ static int i2c_reg_rx_buf_handler(struct i2c_reg_packet *packet) {
 		}
 		return 0;
 	}
+	return 0;
 }
 
 static int (*i2c_reg_handlers[])(struct i2c_reg_packet *) = {
@@ -150,9 +157,9 @@ int i2c_register_handler(void) {
 	struct i2c_reg_packet plaintext;
 	while (true) {
 		k_msgq_get(&i2c_msgq, &plaintext, K_FOREVER);
-		LOG_HEXDUMP_INF(plaintext.plaintext, sizeof(plaintext.plaintext), "i2c cmd");
 		plaintext.read = is_read_command(plaintext.plaintext);
 		i2c_reg_handlers[plaintext.reg](&plaintext);
+		LOG_HEXDUMP_DBG(plaintext.plaintext, sizeof(plaintext.plaintext), "i2c cmd");
 	}
 }
 

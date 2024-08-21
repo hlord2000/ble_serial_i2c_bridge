@@ -35,8 +35,6 @@ def decrypt_message(nonce, ciphertext, key):
     ctr = Counter.new(128, initial_value=int_of_string(nonce))
     cipher = AES.new(key, AES.MODE_CTR, counter=ctr)
     decrypted = cipher.decrypt(ciphertext)
-    print()
-    print(f"Decrypted: {decrypted}")
     magic, message = struct.unpack('B16s', decrypted)
     if magic != BLE_PACKET_MAGIC:
         raise ValueError("Invalid magic number")
@@ -64,7 +62,7 @@ def scan_for_devices(adapter):
     adapter.set_callback_on_scan_start(lambda: print("Scan started."))
     adapter.set_callback_on_scan_stop(lambda: print("Scan complete."))
     adapter.set_callback_on_scan_found(lambda peripheral: print(f"Found {peripheral.identifier()} [{peripheral.address()}]") if peripheral.identifier() == DEVICE_NAME else None)
-    adapter.scan_for(5000)
+    adapter.scan_for(2500)
     return adapter.scan_get_results()
 
 def select_device(peripherals):
@@ -109,7 +107,9 @@ def subscribe_to_notifications(peripheral):
     def notification_callback(data):
         msg = decrypt_message(data[17:], data[0:17], key)
         print()
-        print(f"Received notification: {msg}")
+        print("Recevied BLE Notification")
+        print(f"Ciphertext: \r\n{data}")
+        print(f"Plaintext: \r\n{msg}")
 
     print("Subscribing to notifications...")
     peripheral.notify(BT_UUID_I2C_BRIDGE_SVC, BT_UUID_I2C_BRIDGE_TX_CHAR, notification_callback)
@@ -143,9 +143,12 @@ def main():
                 nonce, ciphertext = encrypt_message(message, key)
                 packet = create_ble_packet(ciphertext, nonce)
                 device.write_request(BT_UUID_I2C_BRIDGE_SVC, BT_UUID_I2C_BRIDGE_RX_CHAR, packet)
+                print()
+                print("Writing BLE message")
+                print(f"Plaintext: \r\n{message}")
+                print(f"Ciphertext: \r\n{packet}")
             except:
                 pass
-            print("Message sent.")
     except KeyboardInterrupt:
         print("\nInterrupted by user.")
     finally:

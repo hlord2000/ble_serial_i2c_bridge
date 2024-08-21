@@ -7,6 +7,7 @@
 LOG_MODULE_REGISTER(ble_peripheral);
 
 #include "crypto.h"
+#include "shared_keys.h"
 #include "i2c_registers.h"
 #include "ble_packet.h"
 #include "ble_peripheral.h"
@@ -15,6 +16,7 @@ struct bt_conn *current_connection = NULL;
 
 #if defined(CONFIG_I2C_BRIDGE_AUTH_ENABLE)
 static void disconnect_work_handler(struct k_work *work) {
+	LOG_INF("Disconnecting from unauthenticated central");
     bt_conn_disconnect(current_connection, BT_HCI_ERR_REMOTE_USER_TERM_CONN);
 }
 
@@ -51,7 +53,7 @@ static bool notif_enabled;
 static bool authenticated = false;
 static void i2c_bridge_ccc_cfg_changed(const struct bt_gatt_attr *attr, uint16_t value) {
 	notif_enabled = (value == BT_GATT_CCC_NOTIFY);
-	LOG_INF("Notficiations enabled");
+	LOG_INF("Central notifications enabled");
 }
 
 K_MSGQ_DEFINE(ble_msgq, sizeof(struct ble_enc_packet), 16, 1);
@@ -72,6 +74,9 @@ static void ble_decrypt_work_handler(struct k_work *work) {
 	if (plaintext.magic == BLE_PACKET_MAGIC) {
 		write_rx_register(plaintext.plaintext);
 	}
+	LOG_INF("BLE Write Packet");
+	LOG_HEXDUMP_INF(ciphertext.data, sizeof(ciphertext.data), "Ciphertext:");
+	LOG_HEXDUMP_INF(plaintext.plaintext, sizeof(plaintext.plaintext), "Plaintext:");
 }
 
 K_WORK_DEFINE(ble_decrypt_work, ble_decrypt_work_handler);
@@ -98,8 +103,8 @@ static ssize_t i2c_bridge_write_auth(struct bt_conn *conn,
 									 uint16_t len, uint16_t offset, uint8_t flags) {
 	int err;
 
-	LOG_INF("Received auth char write");
-	LOG_HEXDUMP_INF(buf, len, "BUFFER:");
+	LOG_INF("Auth packet");
+	LOG_HEXDUMP_INF(buf, len, "Ciphertext: ");
 	if (len != sizeof(struct ble_enc_packet)) {
 		LOG_ERR("Invalid auth char length");
 		return -1;
@@ -111,13 +116,17 @@ static ssize_t i2c_bridge_write_auth(struct bt_conn *conn,
 		LOG_ERR("Decrypt failed (err: %d)", err);
 		return -1;
 	}
-	LOG_HEXDUMP_INF(plaintext.plaintext, DATA_SIZE_BYTES, "DECRYPT:");
+	LOG_HEXDUMP_INF(plaintext.plaintext, sizeof(plaintext.plaintext), "Plaintext: ");
 
 	if (plaintext.magic == BLE_PACKET_MAGIC) {
-		LOG_INF("Successfully authenticated");
-		k_timer_stop(&auth_timeout);
-		authenticated = true;
-		return len;
+		if (memcmp(plaintext.plaintext, ble_auth_message, sizeof(ble_auth_message))) {
+			return -1;
+		} else {
+			LOG_INF("Auth success");
+			k_timer_stop(&auth_timeout);
+			authenticated = true;
+			return len;
+		}
 	} else {
 		return -1;
 	}
@@ -233,20 +242,17 @@ int ble_init(void)
 
 	err = bt_enable(NULL);
 	if (err) {
-		LOG_INF("Failed to enable bluetooth: %d", err);
+		LOG_ERR("Failed to enable bluetooth: %d", err);
 		return err;
 	}
 
 	err = bt_le_adv_start(BT_LE_ADV_CONN, ad, ARRAY_SIZE(ad), sd, ARRAY_SIZE(sd));
 	if (err) {
-		LOG_INF("Failed to start advertising: %d", err);
+		LOG_ERR("Failed to start advertising: %d", err);
 		return err;
 	}
 
 	LOG_INF("Initialization complete");
-
-	LOG_INF("Size of ble_packet: %d", sizeof(struct ble_packet));
-	LOG_INF("Size of ble_enc_packet: %d", sizeof(struct ble_enc_packet));
 
 	return 0;
 }

@@ -50,7 +50,7 @@ void i2c_peripheral_handler(nrfx_twis_evt_t const *p_event)
 
 	switch (p_event->type) {
 	case NRFX_TWIS_EVT_READ_REQ:
-		LOG_INF("Read req");
+		LOG_DBG("Read req");
 
 		plaintext.magic = I2C_PACKET_MAGIC;
 		plaintext.reg = cmd_idx;
@@ -61,20 +61,20 @@ void i2c_peripheral_handler(nrfx_twis_evt_t const *p_event)
 		break;
 
 	case NRFX_TWIS_EVT_READ_DONE:
-		LOG_INF("Read done");
+		LOG_DBG("Read done");
 		break;
 
 	case NRFX_TWIS_EVT_WRITE_REQ:
-		LOG_INF("Write req");
+		LOG_DBG("Write req");
 		memset(i2c_rx_buffer, 0, RX_BUFFER_SIZE);
 		nrfx_twis_rx_prepare(&twis, i2c_rx_buffer, RX_BUFFER_SIZE);
 		break;
 
 	case NRFX_TWIS_EVT_WRITE_DONE:
-		LOG_INF("Write done");
+		LOG_DBG("Write done");
 		// If the received data is in the proper amount...
 		if (p_event->data.rx_amount == sizeof(struct i2c_reg_enc_packet)) {
-			LOG_HEXDUMP_INF(i2c_rx_buffer, I2C_PACKET_SIZE_BYTES, "i2c rx");
+			LOG_HEXDUMP_DBG(i2c_rx_buffer, I2C_PACKET_SIZE_BYTES, "i2c rx");
 			decrypt_i2c_packet(&plaintext, (struct i2c_reg_enc_packet *)i2c_rx_buffer);
 			// If our magic value is decrypted correctly...
 			if (plaintext.magic == I2C_PACKET_MAGIC) {
@@ -96,7 +96,7 @@ void i2c_peripheral_handler(nrfx_twis_evt_t const *p_event)
 		break;
 
 	default:
-		LOG_INF("TWIS event: %d\n", p_event->type);
+		LOG_DBG("TWIS event: %d\n", p_event->type);
 		break;
 	}
 }
