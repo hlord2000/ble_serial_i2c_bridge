@@ -120,7 +120,68 @@ static int cmd_encrypt_send(const struct shell *shell, size_t argc, char **argv)
     return 0;
 }
 
-SHELL_CMD_REGISTER(encrypt_send, NULL, "Encrypt and send a message over I2C", cmd_encrypt_send);
+static int cmd_write_tx_reg(const struct shell *shell, size_t argc, char **argv)
+{
+    if (argc != 2) {
+        shell_error(shell, "Usage: write_tx_reg <data>");
+        return -EINVAL;
+    }
+
+    struct i2c_reg_packet plaintext = {0};
+    struct i2c_reg_enc_packet ciphertext = {0};
+
+    plaintext.magic = I2C_PACKET_MAGIC;
+    plaintext.reg = I2C_REG_TX_BUF;
+
+    size_t message_len = strlen(argv[1]);
+    if (message_len > MAX_MESSAGE_LENGTH - 1) {
+        shell_error(shell, "Data too long. Max length is %d", MAX_MESSAGE_LENGTH - 1);
+        return -EINVAL;
+    }
+    strncpy(plaintext.plaintext, argv[1], message_len);
+
+    int result = encrypt_i2c_packet(&plaintext, &ciphertext);
+    if (result < 0) {
+        shell_error(shell, "Encryption failed");
+        return result;
+    }
+
+    result = i2c_write_dt(&i2c_dev, ciphertext.data, sizeof(struct i2c_reg_enc_packet));
+    if (result < 0) {
+        shell_error(shell, "Failed to write to TX register");
+        return result;
+    }
+
+    shell_print(shell, "Successfully wrote to TX register");
+    return 0;
+}
+
+static int cmd_read_rx_reg(const struct shell *shell, size_t argc, char **argv)
+{
+    if (argc != 1) {
+        shell_error(shell, "Usage: read_rx_reg");
+        return -EINVAL;
+    }
+
+    struct i2c_reg_packet plaintext = {0};
+    int result = i2c_bridge_read(&plaintext, I2C_REG_RX_BUF);
+    if (result < 0) {
+        shell_error(shell, "Failed to read from RX register");
+        return result;
+    }
+
+    shell_print(shell, "RX register contents: %s", plaintext.plaintext);
+    return 0;
+}
+
+SHELL_STATIC_SUBCMD_SET_CREATE(i2c_bridge_cmds,
+    SHELL_CMD(write_tx, NULL, "Write to TX register", cmd_write_tx_reg),
+    SHELL_CMD(read_rx, NULL, "Read from RX register", cmd_read_rx_reg),
+    SHELL_CMD(encrypt_send, NULL, "Encrypt and send a message over I2C", cmd_encrypt_send),
+    SHELL_SUBCMD_SET_END
+);
+
+SHELL_CMD_REGISTER(i2c_bridge, &i2c_bridge_cmds, "I2C Bridge commands", NULL);
 
 int main(void)
 {

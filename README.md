@@ -45,16 +45,32 @@ west flash
 ## I2C Central Use
 
 To read from a register (where 0x06 is the RX register):
+
 ```
-encrypt_send 0x06
+i2c_bridge encrypt_send 0x06
 ```
 A packet with an empty body is interpreted as a read command.
 The I2C central will automatically read the RX register whenever the "INT" pin is high.
 
 To write to a register (where 0x05 is the TX register):
+
 ```
-encrypt_send 0x05 helloworld
+i2c_bridge encrypt_send 0x05 helloworld
 ```
+
+To write to the transmit register (and thus transmit to a connected device):
+
+```
+i2c_bridge write_tx helloworld
+```
+
+To read from the receive register:
+
+```
+i2c_bridge read_rx 
+```
+
+The I2C central will automatically read the RX register whenever the "INT" pin is high.
 
 ---
 
