@@ -1,4 +1,11 @@
-bleak==0.22.2
+click==8.1.7
 dbus-fast==2.22.1
+markdown-it-py==3.0.0
+mdurl==0.1.2
+prompt_toolkit==3.0.47
 pycryptodome==3.20.0
+Pygments==2.18.0
+rich==13.7.1
+simplepyble==0.7.3
 typing_extensions==4.12.2
+wcwidth==0.2.13
