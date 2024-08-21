@@ -1,7 +1,9 @@
 import simplepyble
+import binascii
 import time
 import os
 from Crypto.Cipher import AES
+from Crypto.Util import Counter
 import struct
 
 # Constants
@@ -17,15 +19,31 @@ BT_UUID_I2C_BRIDGE_RX_CHAR = "5914f301-2155-43e8-a446-10de62953d40"
 BT_UUID_I2C_BRIDGE_TX_CHAR = "5914f302-2155-43e8-a446-10de62953d40"
 BT_UUID_I2C_BRIDGE_AUTH_CHAR = "5914f303-2155-43e8-a446-10de62953d40"
 
+def int_of_string(s):
+    return int(binascii.hexlify(s), 16)
+
 def encrypt_message(message, key):
     nonce = os.urandom(NONCE_SIZE_BYTES)
-    cipher = AES.new(key, AES.MODE_GCM, nonce=nonce)
-    ciphertext = cipher.encrypt(message.encode())
+    ctr = Counter.new(128, initial_value=int_of_string(nonce))
+    cipher = AES.new(key, AES.MODE_CTR, counter=ctr)
+    padded_message = struct.pack('B16s', BLE_PACKET_MAGIC, message.encode()[:16])
+    ciphertext = cipher.encrypt(padded_message)
     return nonce, ciphertext
 
+def decrypt_message(nonce, ciphertext, key):
+    ctr = Counter.new(128, initial_value=int_of_string(nonce))
+    cipher = AES.new(key, AES.MODE_CTR, counter=ctr)
+    decrypted = cipher.decrypt(ciphertext)
+    print()
+    print(f"Decrypted: {decrypted}")
+    magic, message = struct.unpack('B16s', decrypted)
+    if magic != BLE_PACKET_MAGIC:
+        raise ValueError("Invalid magic number")
+    return message.rstrip(b'\x00').decode()
+
 def create_ble_packet(ciphertext, nonce):
-    packet = struct.pack(f"B{BLE_PACKET_BYTES}s{NONCE_SIZE_BYTES}s",
-                         BLE_PACKET_MAGIC, ciphertext, nonce)
+    packet = struct.pack(f"{BLE_PACKET_BYTES}s{NONCE_SIZE_BYTES}s",
+                         ciphertext, nonce)
     return packet
 
 def scan_and_select_adapter():
@@ -38,8 +56,7 @@ def scan_and_select_adapter():
     for i, adapter in enumerate(adapters):
         print(f"{i}: {adapter.identifier()} [{adapter.address()}]")
 
-    choice = int(input("Select an adapter (enter the number): "))
-    return adapters[choice]
+    return adapters[0]
 
 def scan_for_devices(adapter):
     print("Scanning for devices...")
@@ -59,7 +76,6 @@ def select_device(peripherals):
 
 def connect_to_device(peripheral):
     print(f"Connecting to: {peripheral.identifier()} [{peripheral.address()}]")
-    time.sleep(10)
     peripheral.connect()
     print("Successfully connected.")
     
@@ -68,6 +84,7 @@ def connect_to_device(peripheral):
         print(f"Service UUID: {service.uuid()}")
         for characteristic in service.characteristics():
             print(f"  Characteristic UUID: {characteristic.uuid()}")
+            print(f"  UUID type {type(characteristic.uuid())}")
 
 def authenticate_device(peripheral, key):
     message = "NORDIC"
@@ -75,22 +92,27 @@ def authenticate_device(peripheral, key):
     packet = create_ble_packet(ciphertext, nonce)
 
     print("Authenticating device...")
-    peripheral.write_request(BT_UUID_I2C_BRIDGE_SVC, BT_UUID_I2C_BRIDGE_AUTH_CHAR, packet)
+    try:
+        peripheral.write_request(BT_UUID_I2C_BRIDGE_SVC, BT_UUID_I2C_BRIDGE_AUTH_CHAR, packet)
+    except:
+        print("exception on write")
     print("Authentication packet sent.")
+
+# Key for encryption
+key = bytes([0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 
+             0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10])
 
 def subscribe_to_notifications(peripheral):
     def notification_callback(data):
-        print(f"Received notification: {data.hex()}")
+        msg = decrypt_message(data[17:], data[0:17], key)
+        print()
+        print(f"Received notification: {msg}")
 
     print("Subscribing to notifications...")
-    peripheral.notify(BT_UUID_I2C_BRIDGE_TX_CHAR, BT_UUID_I2C_BRIDGE_TX_CHAR, notification_callback)
+    peripheral.notify(BT_UUID_I2C_BRIDGE_SVC, BT_UUID_I2C_BRIDGE_TX_CHAR, notification_callback)
     print("Subscribed to notifications.")
 
 def main():
-    # Key for encryption
-    key = bytes([0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 
-                 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10])
-
     adapter = scan_and_select_adapter()
     if not adapter:
         return
@@ -114,7 +136,12 @@ def main():
             message = input("Enter message to send (or 'q' to quit): ")
             if message.lower() == 'q':
                 break
-            device.write_request(BT_UUID_I2C_BRIDGE_SVC, BT_UUID_I2C_BRIDGE_RX_CHAR, message.encode())
+            try:
+                nonce, ciphertext = encrypt_message(message, key)
+                packet = create_ble_packet(ciphertext, nonce)
+                device.write_request(BT_UUID_I2C_BRIDGE_SVC, BT_UUID_I2C_BRIDGE_RX_CHAR, packet)
+            except:
+                pass
             print("Message sent.")
     except KeyboardInterrupt:
         print("\nInterrupted by user.")

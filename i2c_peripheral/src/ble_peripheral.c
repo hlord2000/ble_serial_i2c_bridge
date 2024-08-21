@@ -61,7 +61,7 @@ static void ble_decrypt_work_handler(struct k_work *work) {
 	struct ble_enc_packet ciphertext;
 	k_msgq_get(&ble_msgq, &ciphertext, K_MSEC(100));
 
-	struct ble_packet plaintext;
+	struct ble_packet plaintext = {0};
 	
 	err = decrypt_ble_packet(&plaintext, &ciphertext);
 	if (err < 0) {
@@ -101,17 +101,20 @@ static ssize_t i2c_bridge_write_auth(struct bt_conn *conn,
 	LOG_INF("Received auth char write");
 	LOG_HEXDUMP_INF(buf, len, "BUFFER:");
 	if (len != sizeof(struct ble_enc_packet)) {
+		LOG_ERR("Invalid auth char length");
 		return -1;
 	}
 
-	struct ble_packet plaintext;
+	struct ble_packet plaintext = {0};
 	err = decrypt_ble_packet(&plaintext, (struct ble_enc_packet *)buf);
 	if (err < 0) {
 		LOG_ERR("Decrypt failed (err: %d)", err);
 		return -1;
 	}
+	LOG_HEXDUMP_INF(plaintext.plaintext, DATA_SIZE_BYTES, "DECRYPT:");
 
-	if (plaintext.magic & BLE_PACKET_MAGIC) {
+	if (plaintext.magic == BLE_PACKET_MAGIC) {
+		LOG_INF("Successfully authenticated");
 		k_timer_stop(&auth_timeout);
 		authenticated = true;
 		return len;
@@ -125,18 +128,18 @@ BT_GATT_SERVICE_DEFINE(i2c_bridge_svc,
 	BT_GATT_PRIMARY_SERVICE(BT_UUID_I2C_BRIDGE_SERVICE),						   
 	BT_GATT_CHARACTERISTIC(BT_UUID_I2C_BRIDGE_TX_CHAR,						   
 		BT_GATT_CHRC_NOTIFY,								   
-		BT_GATT_PERM_READ_ENCRYPT,								   
+		BT_GATT_PERM_READ,								   
 		NULL, NULL, NULL),								   
 	BT_GATT_CCC(i2c_bridge_ccc_cfg_changed,							   
-		BT_GATT_PERM_READ_ENCRYPT | BT_GATT_PERM_WRITE_ENCRYPT),					   
+		BT_GATT_PERM_READ | BT_GATT_PERM_WRITE),					   
 	BT_GATT_CHARACTERISTIC(BT_UUID_I2C_BRIDGE_RX_CHAR,						   
 		BT_GATT_CHRC_WRITE | BT_GATT_CHRC_WRITE_WITHOUT_RESP,						   
-		BT_GATT_PERM_WRITE_ENCRYPT,								   
+		BT_GATT_PERM_WRITE,								   
 		NULL, i2c_bridge_bt_chr_write, NULL),							   
 #if defined(CONFIG_I2C_BRIDGE_AUTH_ENABLE)
 	BT_GATT_CHARACTERISTIC(BT_UUID_I2C_BRIDGE_AUTH_CHAR,
 		BT_GATT_CHRC_WRITE,
-		BT_GATT_PERM_WRITE_ENCRYPT,
+		BT_GATT_PERM_WRITE,
 		NULL, i2c_bridge_write_auth, NULL),
 #endif
 );												   
@@ -165,11 +168,6 @@ static void connected(struct bt_conn *conn, uint8_t err)
 	}
 
 	LOG_INF("Connected %s", addr);
-
-	if (bt_conn_set_security(conn, BT_SECURITY_L2)) {
-		LOG_ERR("Failed to set security");
-		bt_conn_disconnect(conn, BT_HCI_ERR_INSUFFICIENT_SECURITY); 
-	}
 
 #if defined(CONFIG_I2C_BRIDGE_AUTH_ENABLE)
 	k_timer_start(&auth_timeout, K_SECONDS(CONFIG_I2C_BRIDGE_AUTH_TIMEOUT), K_NO_WAIT);
@@ -246,6 +244,9 @@ int ble_init(void)
 	}
 
 	LOG_INF("Initialization complete");
+
+	LOG_INF("Size of ble_packet: %d", sizeof(struct ble_packet));
+	LOG_INF("Size of ble_enc_packet: %d", sizeof(struct ble_enc_packet));
 
 	return 0;
 }

@@ -1,3 +1,10 @@
+/ {
+	data_ready: data_ready {
+		compatible = "data-ready";
+		gpios = <&gpio1 11 GPIO_ACTIVE_HIGH>;
+	};
+};
+
 &pinctrl {
 	i2c21_default_alt: i2c21_default_alt {
 		group1 {

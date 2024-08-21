@@ -1,0 +1,10 @@
+description: GPIO pin to indicate that data has been received
+
+compatible: "data-ready"
+
+properties:
+  gpios:
+    type: phandle-array
+    required: true
+    description: |
+      The GPIO connected to the EC's interrupt pin 

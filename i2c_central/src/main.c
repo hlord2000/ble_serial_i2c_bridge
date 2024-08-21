@@ -1,6 +1,7 @@
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
 #include <zephyr/drivers/i2c.h>
+#include <zephyr/drivers/gpio.h>
 #include <zephyr/shell/shell.h>
 #include <string.h>
 #include <stdlib.h>
@@ -11,9 +12,65 @@
 
 LOG_MODULE_REGISTER(main);
 
+#define MAX_MESSAGE_LENGTH 16
+
+
 const struct i2c_dt_spec i2c_dev = I2C_DT_SPEC_GET(DT_NODELABEL(peripheral));
 
-#define MAX_MESSAGE_LENGTH 16
+static const struct gpio_dt_spec data_ready = GPIO_DT_SPEC_GET(DT_NODELABEL(data_ready), gpios);
+
+static int i2c_bridge_read(struct i2c_reg_packet *plaintext, enum i2c_cmds cmd) {
+    struct i2c_reg_enc_packet ciphertext = {0};
+
+	plaintext->magic = I2C_PACKET_MAGIC;
+	plaintext->reg = cmd;
+	memset(plaintext->plaintext, 0, sizeof(plaintext->plaintext));
+
+	int result = encrypt_i2c_packet(plaintext, &ciphertext);
+	if (result < 0) {
+		LOG_ERR("I2C encrypt failed (err: %d)", result);
+		return -1;
+	}
+
+	uint8_t results_buf[I2C_PACKET_SIZE_BYTES];
+
+    result = i2c_write_read_dt(
+                &i2c_dev, 
+                ciphertext.data, 
+                sizeof(struct i2c_reg_enc_packet), 
+                results_buf, 
+				I2C_PACKET_SIZE_BYTES
+    );
+	if (result < 0) {
+		LOG_ERR("I2C write/read failed (err: %d)", result);
+		return -1;
+	}
+
+    result = decrypt_i2c_packet(plaintext, (struct i2c_reg_enc_packet *)results_buf);
+	if (result < 0) {
+		LOG_ERR("I2C decrypt failed (err: %d)", result);
+		return -1;
+	}
+
+	return 0;
+}
+
+static void read_work_handler(struct k_work *work)
+{
+	struct i2c_reg_packet plaintext;
+    i2c_bridge_read(&plaintext, I2C_REG_RX_BUF);
+	LOG_HEXDUMP_INF(plaintext.plaintext, sizeof(plaintext.plaintext), "Received data:");
+}
+
+K_WORK_DEFINE(read_work, read_work_handler);
+
+
+static struct gpio_callback data_ready_cb_data;
+
+void data_ready_cb(const struct device *dev, struct gpio_callback *cb, uint32_t pins) {
+	LOG_INF("Data ready");
+	k_work_submit(&read_work);
+}
 
 static int cmd_encrypt_send(const struct shell *shell, size_t argc, char **argv)
 {
@@ -72,5 +129,24 @@ int main(void)
         return -EIO;
     }
 
+	if (!gpio_is_ready_dt(&data_ready)) {
+		LOG_ERR("Data ready line not ready %s", data_ready.port->name);
+		return 0;
+	}
+
+	int err = gpio_pin_configure_dt(&data_ready, GPIO_INPUT);
+	if (err < 0) {
+		LOG_ERR("Error: %d, failed to configure %s pin %d", err,
+		  		data_ready.port->name, data_ready.pin);
+	}
+
+	err = gpio_pin_interrupt_configure_dt(&data_ready, GPIO_INT_EDGE_TO_ACTIVE);
+	if (err < 0) {
+		LOG_ERR("Failed (err: %d) to configure interrupt on %s pin %d", err,
+		  		data_ready.port->name, data_ready.pin);
+	}
+
+	gpio_init_callback(&data_ready_cb_data, data_ready_cb, BIT(data_ready.pin));
+	gpio_add_callback(data_ready.port, &data_ready_cb_data);
     return 0;
 }

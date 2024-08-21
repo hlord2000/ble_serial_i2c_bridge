@@ -110,8 +110,8 @@ static int encrypt_ctr_aes(uint8_t *iv_buf, uint8_t *plaintext, size_t plain_len
 	}
 
 	LOG_INF("Encryption successful!\r\n");
-	LOG_HEXDUMP_INF(iv_buf, 16, "IV");
 	LOG_HEXDUMP_INF(plaintext, plain_len, "Plaintext");
+	LOG_HEXDUMP_INF(iv_buf, 16, "IV");
 	LOG_HEXDUMP_INF(ciphertext, cipher_len, "Encrypted text");
 
 	return 0;
@@ -203,6 +203,11 @@ static int decrypt_ctr_aes(uint8_t *iv_buf, uint8_t *ciphertext, size_t cipher_l
 		return status;
 	}
 
+	LOG_INF("Decryption successful!\r\n");
+	LOG_HEXDUMP_INF(ciphertext, cipher_len, "Encrypted text");
+	LOG_HEXDUMP_INF(iv_buf, 16, "IV");
+	LOG_HEXDUMP_INF(plaintext, plain_len, "Plaintext");
+
 	return 0;
 }
 
@@ -229,9 +234,9 @@ int decrypt_ble_packet(struct ble_packet *plaintext, struct ble_enc_packet *encr
 	err = decrypt_ctr_aes(
 				encrypted->nonce, 
 				encrypted->ciphertext, 
-				BLE_PACKET_BYTES,
+				sizeof(encrypted->ciphertext),
 				plaintext->data, 
-				BLE_PACKET_BYTES
+				sizeof(plaintext->data)	
 	);
 	if (err < 0) {
 		LOG_ERR("BLE packet decrypt fail (err: %d)", err);

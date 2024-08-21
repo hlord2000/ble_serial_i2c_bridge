@@ -1,4 +1,6 @@
 #include <zephyr/kernel.h>
+#include <zephyr/devicetree.h>
+#include <zephyr/drivers/gpio.h>
 #include <zephyr/logging/log.h>
 
 #include "i2c_registers.h"
@@ -6,6 +8,9 @@
 #include "ble_packet.h"
 
 LOG_MODULE_REGISTER(i2c_registers);
+
+static const struct gpio_dt_spec data_ready = 
+	GPIO_DT_SPEC_GET(DT_NODELABEL(data_ready), gpios);
 
 extern struct k_msgq i2c_msgq;
 
@@ -98,8 +103,12 @@ static int i2c_reg_tx_buf_handler(struct i2c_reg_packet *packet) {
 
 static int i2c_reg_rx_buf_handler(struct i2c_reg_packet *packet) {
 	LOG_INF("RX buf packet");
+	LOG_INF("Read cmd? %d", packet->read);
 	if (packet->read) {
-		// CLEAR INT GPIO
+		int err = gpio_pin_set_dt(&data_ready, 0);
+		if (err < 0) {
+			LOG_ERR("Error setting interrupt pin (err: %d)", err);
+		}
 		return 0;
 	}
 }
@@ -115,7 +124,7 @@ static int (*i2c_reg_handlers[])(struct i2c_reg_packet *) = {
 };
 
 static bool is_read_command(uint8_t *data) {
-	for (int i = 0; i < I2C_PACKET_SIZE_BYTES; i++) {
+	for (int i = 0; i < DATA_SIZE_BYTES; i++) {
 	  if (data[i] != 0) {
 	  	return false;
 	  }
@@ -127,9 +136,21 @@ static bool is_read_command(uint8_t *data) {
 int i2c_register_handler(void) {
 	LOG_INF("Beginning secure I2C -> NUS bridge");
 
+	if (!gpio_is_ready_dt(&data_ready)) {
+		LOG_ERR("Interrupt GPIO not ready.");
+		return -1;
+	}
+
+	int err = gpio_pin_configure_dt(&data_ready, GPIO_OUTPUT_INACTIVE);
+	if (err < 0) {
+		LOG_ERR("Interrupt GPIO configuration failed (err: %d)", err);
+		return -1;
+	}
+
 	struct i2c_reg_packet plaintext;
 	while (true) {
 		k_msgq_get(&i2c_msgq, &plaintext, K_FOREVER);
+		LOG_HEXDUMP_INF(plaintext.plaintext, sizeof(plaintext.plaintext), "i2c cmd");
 		plaintext.read = is_read_command(plaintext.plaintext);
 		i2c_reg_handlers[plaintext.reg](&plaintext);
 	}
@@ -137,7 +158,10 @@ int i2c_register_handler(void) {
 
 void write_rx_register(uint8_t *buf) {
 	memcpy(command_registers[I2C_REG_RX_BUF].data, buf, DATA_SIZE_BYTES);
-	// SET INT GPIO
+	int err = gpio_pin_set_dt(&data_ready, 1);
+	if (err < 0) {
+		LOG_ERR("Error setting interrupt pin (err: %d)", err);
+	}
 }
 
 #define THREAD_STACK_SIZE 2048 

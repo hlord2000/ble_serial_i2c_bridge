@@ -21,7 +21,7 @@ struct __attribute__((packed)) ble_enc_packet {
 	};
 };
 
-struct ble_packet {
+struct __attribute__((packed)) ble_packet {
     union {
         struct {
             uint8_t magic;
@@ -29,7 +29,6 @@ struct ble_packet {
         };
         uint8_t data[BLE_PACKET_BYTES];
     };
-	bool read;
 };
 
 #endif
