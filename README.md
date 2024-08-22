@@ -17,6 +17,15 @@ west build -b nrf54l15pdk/nrf54l15/cpuapp -p auto
 west flash
 ```
 
+### Expected size of binary:
+
+```
+Memory region         Used Size  Region Size  %age Used
+           FLASH:      210852 B      1420 KB     14.50%
+             RAM:       68256 B       188 KB     35.46%
+        IDT_LIST:          0 GB        32 KB      0.00%
+```
+
 For the i2c_central:
 ```
 cd i2c_central
