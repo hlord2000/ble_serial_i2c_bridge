@@ -1,4 +1,5 @@
 # BLE Serial -> I2C Bridge
+Based on nRF Connect SDK Version 2.7
 
 This sample provides an encrypted I2C connection to an nRF54L15 acting as I2C peripheral. This I2C peripheral simultaneously acts as an authenticated and encrypted BLE peripheral that will only accept writes or send notifications to a properly authenticated BLE central.
 
