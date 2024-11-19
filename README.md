@@ -152,7 +152,6 @@ Received notification: hellohey
 | I2C_REG_TX_BUF | 0x05 | Accesses the transmit buffer | ✅ |
 | I2C_REG_RX_BUF | 0x06 | Accesses the receive buffer | ✅ |
 
-
 ---
 
 ## Packet Formats
@@ -224,3 +223,22 @@ Transmit:
 <p align="center">
   <img src="img/ble_transmit.png" alt="BLE Transmit">
 </p>
+
+## Example **UNENCRYPTED** I2C Transatcion
+### **Do not use unencrypted I2C in production**
+
+I2C Read (from INT pin BLE write):
+<p align="center">
+  <img src="img/i2c_read_from_ble_write.png" alt="Synchronous I2C read">
+</p>
+
+I2C Read (asynchronous):
+<p align="center">
+  <img src="img/i2c_read_async.png" alt="Asynchronous I2C read">
+</p>
+
+I2C Write (for BLE transmission):
+<p align="center">
+  <img src="img/i2c_write_tx.png" alt="I2C write for BLE transmission">
+</p>
+
