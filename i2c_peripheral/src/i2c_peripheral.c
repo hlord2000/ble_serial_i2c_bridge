@@ -50,14 +50,18 @@ void i2c_peripheral_handler(nrfx_twis_evt_t const *p_event)
 
 	switch (p_event->type) {
 	case NRFX_TWIS_EVT_READ_REQ:
-		LOG_DBG("Read req");
+		LOG_INF("Read req");
 
 		plaintext.magic = I2C_PACKET_MAGIC;
 		plaintext.reg = cmd_idx;
 		memcpy(plaintext.plaintext, command_registers[cmd_idx].data, DATA_SIZE_BYTES);
 
+#if defined(CONFIG_BSIB_I2C_ENCRYPTION)
 		encrypt_i2c_packet(&plaintext, &ciphertext);
 		nrfx_twis_tx_prepare(&twis, &ciphertext.data, I2C_PACKET_SIZE_BYTES);
+#else
+		nrfx_twis_tx_prepare(&twis, &plaintext.data, I2C_REG_PACKET_BYTES);
+#endif
 		break;
 
 	case NRFX_TWIS_EVT_READ_DONE:
@@ -72,6 +76,7 @@ void i2c_peripheral_handler(nrfx_twis_evt_t const *p_event)
 
 	case NRFX_TWIS_EVT_WRITE_DONE:
 		LOG_DBG("Write done");
+#if defined(CONFIG_BSIB_I2C_ENCRYPTION)
 		// If the received data is in the proper amount...
 		if (p_event->data.rx_amount == sizeof(struct i2c_reg_enc_packet)) {
 			LOG_HEXDUMP_DBG(i2c_rx_buffer, I2C_PACKET_SIZE_BYTES, "i2c rx");
@@ -93,6 +98,29 @@ void i2c_peripheral_handler(nrfx_twis_evt_t const *p_event)
 		} else {
 			LOG_ERR("Invalid encrypted packet length: %d", p_event->data.rx_amount);
 		}
+#else
+		// If the received data is in the proper amount...
+		if (p_event->data.rx_amount == sizeof(struct i2c_reg_packet)) {
+			LOG_HEXDUMP_DBG(i2c_rx_buffer, I2C_PACKET_SIZE_BYTES, "i2c rx");
+			// If our magic value is in the right position...
+			struct i2c_reg_packet local_plaintext = *(struct i2c_reg_packet *)i2c_rx_buffer;
+			if (local_plaintext.magic == I2C_PACKET_MAGIC) {
+				cmd_idx = local_plaintext.reg;
+				// If the command index is valid...
+				if (cmd_idx < I2C_REG_END) {
+					cmd_idx = local_plaintext.reg;
+					k_msgq_put(&i2c_msgq, &local_plaintext, K_NO_WAIT);
+				} else {
+					LOG_ERR("Invalid command index: %d", cmd_idx);
+				}
+			} else {
+				cmd_idx = I2C_REG_STATUS;
+				LOG_ERR("Invalid I2C packet magic");
+			}
+		} else {
+			LOG_ERR("Invalid packet length: %d", p_event->data.rx_amount);
+		}
+#endif
 		break;
 
 	default:

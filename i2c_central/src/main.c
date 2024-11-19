@@ -20,13 +20,15 @@ const struct i2c_dt_spec i2c_dev = I2C_DT_SPEC_GET(DT_NODELABEL(peripheral));
 static const struct gpio_dt_spec data_ready = GPIO_DT_SPEC_GET(DT_NODELABEL(data_ready), gpios);
 
 static int i2c_bridge_read(struct i2c_reg_packet *plaintext, enum i2c_cmds cmd) {
-    struct i2c_reg_enc_packet ciphertext = {0};
+	int result;
 
 	plaintext->magic = I2C_PACKET_MAGIC;
 	plaintext->reg = cmd;
 	memset(plaintext->plaintext, 0, sizeof(plaintext->plaintext));
 
-	int result = encrypt_i2c_packet(plaintext, &ciphertext);
+#if defined(CONFIG_BSIB_I2C_ENCRYPTION)
+    struct i2c_reg_enc_packet ciphertext = {0};
+	result = encrypt_i2c_packet(plaintext, &ciphertext);
 	if (result < 0) {
 		LOG_ERR("I2C encrypt failed (err: %d)", result);
 		return -1;
@@ -52,7 +54,23 @@ static int i2c_bridge_read(struct i2c_reg_packet *plaintext, enum i2c_cmds cmd) 
 		LOG_ERR("I2C decrypt failed (err: %d)", result);
 		return -1;
 	}
+#else
 
+	uint8_t results_buf[I2C_REG_PACKET_BYTES];
+    result = i2c_write_read_dt(
+                &i2c_dev, 
+                plaintext->data, 
+                sizeof(struct i2c_reg_packet), 
+                results_buf, 
+				I2C_REG_PACKET_BYTES 
+    );
+	if (result < 0) {
+		LOG_ERR("Failed to send unencrypted I2C packet (err: %d)", result);
+		return -1;
+	}
+
+	memcpy(plaintext, results_buf, I2C_REG_PACKET_BYTES);
+#endif
 	return 0;
 }
 
@@ -72,6 +90,7 @@ void data_ready_cb(const struct device *dev, struct gpio_callback *cb, uint32_t 
 	k_work_submit(&read_work);
 }
 
+#if defined(CONFIG_BSIB_I2C_ENCRYPTION)
 static int cmd_encrypt_send(const struct shell *shell, size_t argc, char **argv)
 {
     if (argc < 2 || argc > 3) {
@@ -119,6 +138,7 @@ static int cmd_encrypt_send(const struct shell *shell, size_t argc, char **argv)
     shell_print(shell, "Encrypted message sent successfully");
     return 0;
 }
+#endif
 
 static int cmd_write_tx_reg(const struct shell *shell, size_t argc, char **argv)
 {
@@ -127,8 +147,11 @@ static int cmd_write_tx_reg(const struct shell *shell, size_t argc, char **argv)
         return -EINVAL;
     }
 
+	int result;
     struct i2c_reg_packet plaintext = {0};
+#if defined(CONFIG_BSIB_I2C_ENCRYPTION)
     struct i2c_reg_enc_packet ciphertext = {0};
+#endif
 
     plaintext.magic = I2C_PACKET_MAGIC;
     plaintext.reg = I2C_REG_TX_BUF;
@@ -140,7 +163,8 @@ static int cmd_write_tx_reg(const struct shell *shell, size_t argc, char **argv)
     }
     strncpy(plaintext.plaintext, argv[1], message_len);
 
-    int result = encrypt_i2c_packet(&plaintext, &ciphertext);
+#if defined(CONFIG_BSIB_I2C_ENCRYPTION)
+    result = encrypt_i2c_packet(&plaintext, &ciphertext);
     if (result < 0) {
         shell_error(shell, "Encryption failed");
         return result;
@@ -151,12 +175,20 @@ static int cmd_write_tx_reg(const struct shell *shell, size_t argc, char **argv)
         shell_error(shell, "Failed to write to TX register");
         return result;
     }
+#endif
+    result = i2c_write_dt(&i2c_dev, plaintext.data, sizeof(struct i2c_reg_packet));
+    if (result < 0) {
+        shell_error(shell, "Failed to write to unencrypted TX register");
+        return result;
+    }
 
     shell_print(shell, "Successfully wrote to TX register");
 	shell_print(shell, "Plaintext: ");
 	shell_hexdump(shell, plaintext.plaintext, sizeof(plaintext.plaintext));
+#if defined(CONFIG_BSIB_I2C_ENCRYPTION)
 	shell_print(shell, "Ciphertext: ");
 	shell_hexdump(shell, ciphertext.data, sizeof(ciphertext.data));
+#endif
     return 0;
 }
 
@@ -182,7 +214,9 @@ static int cmd_read_rx_reg(const struct shell *shell, size_t argc, char **argv)
 SHELL_STATIC_SUBCMD_SET_CREATE(i2c_bridge_cmds,
     SHELL_CMD(write_tx, NULL, "Write to TX register", cmd_write_tx_reg),
     SHELL_CMD(read_rx, NULL, "Read from RX register", cmd_read_rx_reg),
+#if defined(CONFIG_BSIB_I2C_ENCRYPTION)
     SHELL_CMD(encrypt_send, NULL, "Encrypt and send a message over I2C", cmd_encrypt_send),
+#endif
     SHELL_SUBCMD_SET_END
 );
 
