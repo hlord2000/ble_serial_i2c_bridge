@@ -1,7 +1,0 @@
-- Implement BLE auth
-- Implement system power off
-- Implement system wake on GPIO
-- Implement EC not responding on GPIO toggle
-
-INT goes from 54L05 to EC
-Status goes from EC to 54L05
