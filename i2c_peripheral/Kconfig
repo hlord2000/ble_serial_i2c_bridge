@@ -16,7 +16,6 @@ config I2C_BRIDGE_AUTH_TIMEOUT
 
 config BSIB_I2C_ENCRYPTION
 	bool "Encryption is enabled for I2C transport"
-	default y
 	help
 	  Enables encryption for I2C communication
 

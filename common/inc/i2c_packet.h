@@ -24,7 +24,9 @@ struct __attribute__((packed)) i2c_reg_enc_packet {
 struct i2c_reg_packet {
     union {
         struct {
+#if defined(CONFIG_BSIB_I2C_ENCRYPTION)
             uint8_t magic;
+#endif
             uint8_t reg;
             uint8_t plaintext[DATA_SIZE_BYTES];
         };

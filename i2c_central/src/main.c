@@ -22,7 +22,10 @@ static const struct gpio_dt_spec data_ready = GPIO_DT_SPEC_GET(DT_NODELABEL(data
 static int i2c_bridge_read(struct i2c_reg_packet *plaintext, enum i2c_cmds cmd) {
 	int result;
 
+
+#if defined(CONFIG_BSIB_I2C_ENCRYPTION)
 	plaintext->magic = I2C_PACKET_MAGIC;
+#endif
 	plaintext->reg = cmd;
 	memset(plaintext->plaintext, 0, sizeof(plaintext->plaintext));
 
@@ -151,9 +154,9 @@ static int cmd_write_tx_reg(const struct shell *shell, size_t argc, char **argv)
     struct i2c_reg_packet plaintext = {0};
 #if defined(CONFIG_BSIB_I2C_ENCRYPTION)
     struct i2c_reg_enc_packet ciphertext = {0};
+    plaintext.magic = I2C_PACKET_MAGIC;
 #endif
 
-    plaintext.magic = I2C_PACKET_MAGIC;
     plaintext.reg = I2C_REG_TX_BUF;
 
     size_t message_len = strlen(argv[1]);
@@ -175,8 +178,11 @@ static int cmd_write_tx_reg(const struct shell *shell, size_t argc, char **argv)
         shell_error(shell, "Failed to write to TX register");
         return result;
     }
-#endif
+
     result = i2c_write_dt(&i2c_dev, plaintext.data, sizeof(struct i2c_reg_packet));
+#else
+    result = i2c_write_dt(&i2c_dev, plaintext.data, message_len + 1);
+#endif
     if (result < 0) {
         shell_error(shell, "Failed to write to unencrypted TX register");
         return result;
@@ -240,6 +246,7 @@ int main(void)
 		  		data_ready.port->name, data_ready.pin);
 	}
 
+	#if 0
 	err = gpio_pin_interrupt_configure_dt(&data_ready, GPIO_INT_EDGE_TO_ACTIVE);
 	if (err < 0) {
 		LOG_ERR("Failed (err: %d) to configure interrupt on %s pin %d", err,
@@ -248,5 +255,6 @@ int main(void)
 
 	gpio_init_callback(&data_ready_cb_data, data_ready_cb, BIT(data_ready.pin));
 	gpio_add_callback(data_ready.port, &data_ready_cb_data);
+	#endif
     return 0;
 }

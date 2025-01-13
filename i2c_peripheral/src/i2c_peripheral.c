@@ -2,6 +2,7 @@
 #include <string.h>
 
 #include <zephyr/kernel.h>
+#include <zephyr/sys/ring_buffer.h>
 #include <zephyr/linker/devicetree_regions.h>
 #include <zephyr/device.h>
 #include <zephyr/drivers/pinctrl.h>
@@ -43,90 +44,78 @@ static uint8_t i2c_rx_buffer[RX_BUFFER_SIZE] TWIS_MEMORY_SECTION;
 K_MSGQ_DEFINE(i2c_msgq, sizeof(struct i2c_reg_packet), 16, 1);
 
 enum i2c_cmds cmd_idx = I2C_REG_STATUS;
-void i2c_peripheral_handler(nrfx_twis_evt_t const *p_event)
-{
-	struct i2c_reg_enc_packet ciphertext;
-	struct i2c_reg_packet plaintext;
 
-	switch (p_event->type) {
-	case NRFX_TWIS_EVT_READ_REQ:
-		LOG_INF("Read req");
+void i2c_peripheral_handler(nrfx_twis_evt_t const *p_event) {
+    struct i2c_reg_packet plaintext;
+    bool process_packet = false;
 
-		plaintext.magic = I2C_PACKET_MAGIC;
-		plaintext.reg = cmd_idx;
-		memcpy(plaintext.plaintext, command_registers[cmd_idx].data, DATA_SIZE_BYTES);
+    switch (p_event->type) {
+    case NRFX_TWIS_EVT_READ_REQ:
+        LOG_INF("TWIS read requested");
+        plaintext.reg = cmd_idx;
+		LOG_INF("Copying cmd_idx: %d", cmd_idx);
+		
+		if (command_registers[cmd_idx].is_ring_buffer) {
+			ring_buf_peek(&command_registers[cmd_idx].ring_data, plaintext.data, 16);
+		} else {
+			memcpy(plaintext.data, command_registers[cmd_idx].data, DATA_SIZE_BYTES);
+		}
 
 #if defined(CONFIG_BSIB_I2C_ENCRYPTION)
-		encrypt_i2c_packet(&plaintext, &ciphertext);
-		nrfx_twis_tx_prepare(&twis, &ciphertext.data, I2C_PACKET_SIZE_BYTES);
+		struct i2c_reg_enc_packet ciphertext;
+        encrypt_i2c_packet(&plaintext, &ciphertext);
+        nrfx_twis_tx_prepare(&twis, &ciphertext.data, I2C_PACKET_SIZE_BYTES);
 #else
-		nrfx_twis_tx_prepare(&twis, &plaintext.data, I2C_REG_PACKET_BYTES);
+        nrfx_twis_tx_prepare(&twis, &plaintext.data, I2C_REG_PACKET_BYTES);
 #endif
-		break;
+        break;
 
-	case NRFX_TWIS_EVT_READ_DONE:
-		LOG_DBG("Read done");
-		break;
+    case NRFX_TWIS_EVT_READ_DONE:
+		ring_buf_get(&command_registers[cmd_idx].ring_data, plaintext.data, p_event->data.rx_amount);
+		memset(plaintext.data, 0, 16);
+        LOG_INF("TWIS read done");
+        break;
 
-	case NRFX_TWIS_EVT_WRITE_REQ:
-		LOG_DBG("Write req");
-		memset(i2c_rx_buffer, 0, RX_BUFFER_SIZE);
-		nrfx_twis_rx_prepare(&twis, i2c_rx_buffer, RX_BUFFER_SIZE);
-		break;
+    case NRFX_TWIS_EVT_WRITE_REQ:
+        LOG_INF("TWIS write requested");
+        memset(i2c_rx_buffer, 0, RX_BUFFER_SIZE);
+        nrfx_twis_rx_prepare(&twis, i2c_rx_buffer, RX_BUFFER_SIZE);
+        break;
 
-	case NRFX_TWIS_EVT_WRITE_DONE:
-		LOG_DBG("Write done");
+    case NRFX_TWIS_EVT_WRITE_DONE:
+        LOG_INF("TWIS write done");
+        LOG_HEXDUMP_INF(i2c_rx_buffer, I2C_PACKET_SIZE_BYTES, "i2c rx");
+
 #if defined(CONFIG_BSIB_I2C_ENCRYPTION)
-		// If the received data is in the proper amount...
-		if (p_event->data.rx_amount == sizeof(struct i2c_reg_enc_packet)) {
-			LOG_HEXDUMP_DBG(i2c_rx_buffer, I2C_PACKET_SIZE_BYTES, "i2c rx");
-			decrypt_i2c_packet(&plaintext, (struct i2c_reg_enc_packet *)i2c_rx_buffer);
-			// If our magic value is decrypted correctly...
-			if (plaintext.magic == I2C_PACKET_MAGIC) {
-				cmd_idx = plaintext.reg;
-				// If the command index is valid...
-				if (cmd_idx < I2C_REG_END) {
-					cmd_idx = plaintext.reg;
-					k_msgq_put(&i2c_msgq, &plaintext, K_NO_WAIT);
-				} else {
-					LOG_ERR("Invalid command index: %d", cmd_idx);
-				}
-			} else {
-				cmd_idx = I2C_REG_STATUS;
-				LOG_ERR("Invalid I2C packet magic");
-			}
-		} else {
-			LOG_ERR("Invalid encrypted packet length: %d", p_event->data.rx_amount);
-		}
+        if (p_event->data.rx_amount == sizeof(struct i2c_reg_enc_packet)) {
+            decrypt_i2c_packet(&plaintext, (struct i2c_reg_enc_packet *)i2c_rx_buffer);
+            process_packet = true;
+        } else {
+            LOG_ERR("Invalid encrypted packet length: %d", p_event->data.rx_amount);
+        }
 #else
-		// If the received data is in the proper amount...
-		if (p_event->data.rx_amount == sizeof(struct i2c_reg_packet)) {
-			LOG_HEXDUMP_DBG(i2c_rx_buffer, I2C_PACKET_SIZE_BYTES, "i2c rx");
-			// If our magic value is in the right position...
-			struct i2c_reg_packet local_plaintext = *(struct i2c_reg_packet *)i2c_rx_buffer;
-			if (local_plaintext.magic == I2C_PACKET_MAGIC) {
-				cmd_idx = local_plaintext.reg;
-				// If the command index is valid...
-				if (cmd_idx < I2C_REG_END) {
-					cmd_idx = local_plaintext.reg;
-					k_msgq_put(&i2c_msgq, &local_plaintext, K_NO_WAIT);
-				} else {
-					LOG_ERR("Invalid command index: %d", cmd_idx);
-				}
-			} else {
-				cmd_idx = I2C_REG_STATUS;
-				LOG_ERR("Invalid I2C packet magic");
-			}
-		} else {
-			LOG_ERR("Invalid packet length: %d", p_event->data.rx_amount);
-		}
+        // When encryption is disabled, treat received data as plaintext directly
+		memcpy(&plaintext, i2c_rx_buffer, sizeof(struct i2c_reg_packet));
+		process_packet = true;
 #endif
-		break;
 
-	default:
-		LOG_DBG("TWIS event: %d\n", p_event->type);
-		break;
-	}
+        // Common packet processing logic
+        if (process_packet) {
+            cmd_idx = plaintext.reg;
+			LOG_INF("Processing packet");
+            if (cmd_idx < I2C_REG_END) {
+                k_msgq_put(&i2c_msgq, &plaintext, K_NO_WAIT);
+            } else {
+                LOG_ERR("Invalid command index: %d", cmd_idx);
+                cmd_idx = I2C_REG_STATUS;
+            }
+        }
+        break;
+
+    default:
+        LOG_INF("TWIS event: %d\n", p_event->type);
+        break;
+    }
 }
 
 static int i2c_peripheral_init(void)

@@ -1,9 +1,9 @@
 # BLE Serial -> I2C Bridge
-Based on nRF Connect SDK Version 2.7
+Based on nRF Connect SDK Version 2.9
 
-This sample provides an encrypted I2C connection to an nRF54L15 acting as I2C peripheral. This I2C peripheral simultaneously acts as an authenticated and encrypted BLE peripheral that will only accept writes or send notifications to a properly authenticated BLE central.
+This sample provides an (optionally) encrypted I2C connection to an nRF54L15 acting as I2C peripheral. This I2C peripheral simultaneously acts as an authenticated and encrypted BLE peripheral that will only accept writes or send notifications to a properly authenticated BLE central.
 
-Authentication and encryption uses AES-CTR with a randomized 16 byte nonce. Care should be taken to never repeat a nonce. Although using a random nonce provides reasonable security, a more robust option would be to use a monotonically increasing counter.
+Authentication and encryption uses AES-CTR with a randomized 16 byte nonce. Care should be taken to never repeat a nonce. Although using a random nonce provides reasonable security, a more robust option may be to use a monotonically increasing counter.
 
 Note that the I2C peripheral and BLE peripheral functions of the nRF54L15 share a pre-shared key (PSK). This PSK would, ideally, be different between the I2C central and the BLE central. Also note that these examples operate without TF-M or use of secure key storage which **must** be implemented for proper device security.
 
@@ -14,7 +14,7 @@ Note that the I2C peripheral and BLE peripheral functions of the nRF54L15 share 
 For the i2c_peripheral:
 ```
 cd i2c_peripheral
-west build -b nrf54l15pdk/nrf54l15/cpuapp -p auto
+west build -b nrf54l15dk/nrf54l15/cpuapp -p auto
 west flash
 ```
 
@@ -30,7 +30,7 @@ Memory region         Used Size  Region Size  %age Used
 For the i2c_central:
 ```
 cd i2c_central
-west build -b nrf52840dk/nrf52840 -p auto
+west build -b nrf54l15dk/nrf54l15/cpuapp -p auto
 west flash
 ```
 
@@ -39,14 +39,13 @@ west flash
 ## Hardware Connections
 | Function          | Peripheral | Central |
 |-------------------|------------|---------|
-| SCL               | P1.13      | P0.27   |
-| SDA               | P1.09      | P0.26   |
-| INT               | P1.11      | P1.15   |
-| Reference Voltage | VDDIO      | VIO_REF |
+| SCL               | P1.12      | P1.12   |
+| SDA               | P1.14      | P1.14   |
+| INT               | P1.10      | P1.10   |
 
-**It is critical that the VIO_REF of the I2C central is the same as the VDDIO of the nRF54L15-PDK**
+**It is critical that the VDDIO of the I2C central is the same as the VDDIO of the nRF54L15-DK**
 
-**To enable pull-ups on the I2C central, connect the "DETECT" pin to ground**
+**By default, the I2C central provides pull-ups**
 
 **Also connect ground between both kits**
 
@@ -79,8 +78,6 @@ To read from the receive register:
 ```
 i2c_bridge read_rx 
 ```
-
-The I2C central will automatically read the RX register whenever the "INT" pin is high.
 
 ---
 
@@ -146,11 +143,14 @@ Received notification: hellohey
 |---------|-------|---------|-------------|
 | I2C_REG_STATUS | 0x00 | Retrieves the current status of the device | ✅ |
 | I2C_REG_DEV_ID | 0x01 | Retrieves the device identifier | ✅ |
-| I2C_REG_ADVERTISING | 0x02 | Controls or retrieves advertising settings | 🚧 |
-| I2C_REG_CONN_PARAM | 0x03 | Sets or retrieves connection parameters | 🚧 |
-| I2C_REG_POWER | 0x04 | Controls or retrieves power settings | 🚧 |
-| I2C_REG_TX_BUF | 0x05 | Accesses the transmit buffer | ✅ |
-| I2C_REG_RX_BUF | 0x06 | Accesses the receive buffer | ✅ |
+| I2C_REG_INT_SRC | 0x02 | Manages interrupt sources | 🚧 |
+| I2C_REG_TX_BUF | 0x03 | Accesses the transmit buffer | ✅ |
+| I2C_REG_TX_NUM | 0x04 | Controls transmit buffer count | 🚧 |
+| I2C_REG_RX_BUF | 0x05 | Accesses the receive buffer | ✅ |
+| I2C_REG_RX_NUM | 0x06 | Controls receive buffer count | 🚧 |
+| I2C_REG_BLE_ADVERTISING | 0x07 | Controls or retrieves advertising settings | 🚧 |
+| I2C_REG_BLE_CONN_PARAM | 0x08 | Sets or retrieves connection parameters | 🚧 |
+| I2C_REG_BLE_POWER | 0x09 | Controls or retrieves power settings | 🚧 |
 
 ---
 
@@ -186,6 +186,8 @@ BLE Encrypted Packet (ble_enc_packet):
 | `ciphertext` | `uint8_t[BLE_PACKET_BYTES]` | An array of bytes containing the encrypted data. The size is determined by the `BLE_PACKET_BYTES` constant. |
 | `nonce` | `uint8_t[NONCE_SIZE_BYTES]` | An array of bytes representing the nonce (number used once) for encryption. The size is determined by the `NONCE_SIZE_BYTES` constant. |
 | `data` | `uint8_t[BLE_PACKET_SIZE_BYTES]` | A union member that overlaps with `ciphertext` and `nonce`, representing the entire packet data as a single byte array. The size is determined by the `BLE_PACKET_SIZE_BYTES` constant. |
+
+**Note: the formats may differ depending on which encryption method is used or which transports are encrypted.**
 
 --- 
 
