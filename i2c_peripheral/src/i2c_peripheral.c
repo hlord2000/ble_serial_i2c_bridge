@@ -55,7 +55,7 @@ void i2c_peripheral_handler(nrfx_twis_evt_t const *p_event) {
         plaintext.reg = cmd_idx;
 		LOG_INF("Copying cmd_idx: %d", cmd_idx);
 		
-		if (command_registers[cmd_idx].is_ring_buffer) {
+		if (command_registers[cmd_idx].type == REG_TYPE_RINGBUF) {
 			ring_buf_peek(&command_registers[cmd_idx].ring_data, plaintext.data, 16);
 		} else {
 			memcpy(plaintext.data, command_registers[cmd_idx].data, DATA_SIZE_BYTES);
@@ -71,8 +71,6 @@ void i2c_peripheral_handler(nrfx_twis_evt_t const *p_event) {
         break;
 
     case NRFX_TWIS_EVT_READ_DONE:
-		ring_buf_get(&command_registers[cmd_idx].ring_data, plaintext.data, p_event->data.rx_amount);
-		memset(plaintext.data, 0, 16);
         LOG_INF("TWIS read done");
         break;
 
