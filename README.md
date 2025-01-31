@@ -136,6 +136,8 @@ Decrypted: b'\xbbhellohey\x00\x00\x00\x00\x00\x00\x00\x00'
 Received notification: hellohey
 ```
 
+Additionally, the command "adc <sample_rate (uint32_t)> <enable (0|1, bool/uint8_t)>" can be used to enable ADC notifications.
+
 ---
 
 ## I2C Command Set
@@ -198,6 +200,7 @@ BLE Encrypted Packet (ble_enc_packet):
 | BT_UUID_I2C_BRIDGE_RX_CHAR_VAL | 5914f301-2155-43e8-a446-10de62953d40 | Defines the UUID for the I2C Bridge Receive Characteristic |
 | BT_UUID_I2C_BRIDGE_TX_CHAR_VAL | 5914f302-2155-43e8-a446-10de62953d40 | Defines the UUID for the I2C Bridge Transmit Characteristic |
 | BT_UUID_I2C_BRIDGE_AUTH_CHAR_VAL | 5914f303-2155-43e8-a446-10de62953d40 | Defines the UUID for the I2C Bridge Authentication Characteristic |
+| BT_UUID_ADC_VOLTAGE_READING | 5914f304-2155-43e8-a446-10de62953d40 | Defines the UUID for the ADC voltage characteristic |
 
 ---
 

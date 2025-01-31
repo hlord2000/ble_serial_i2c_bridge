@@ -4,4 +4,6 @@
 
 int i2c_bridge_transmit(struct ble_enc_packet *packet);
 
+int adc_voltage_transmit(int32_t millivolts);
+
 #endif

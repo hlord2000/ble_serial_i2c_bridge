@@ -11,8 +11,17 @@ LOG_MODULE_REGISTER(ble_peripheral);
 #include "i2c_registers.h"
 #include "ble_packet.h"
 #include "ble_peripheral.h"
+#include "adc.h"
 
 struct bt_conn *current_connection = NULL;
+
+#define BLE_EVT_CONNECTED BIT(0)
+#define BLE_EVT_AUTHENTICATED BIT(1)
+
+#define BLE_EVT_I2C_BRIDGE_NOTIFS_ENABLED BIT(2)
+#define BLE_EVT_ADC_NOTIFS_ENABLED BIT(3)
+
+K_EVENT_DEFINE(ble_conn_state_events);
 
 #if defined(CONFIG_I2C_BRIDGE_AUTH_ENABLE)
 static void disconnect_work_handler(struct k_work *work) {
@@ -24,6 +33,7 @@ K_WORK_DEFINE(disconnect_work, disconnect_work_handler);
 
 static void auth_timeout_expiry(struct k_timer *timer) {
 	k_work_submit(&disconnect_work);
+	k_event_clear(&ble_conn_state_events, BLE_EVT_AUTHENTICATED);
 }
 #endif
 
@@ -34,26 +44,30 @@ static void auth_timeout_expiry(struct k_timer *timer) {
 	BT_UUID_128_ENCODE(0x5914f301, 0x2155, 0x43e8, 0xa446, 0x10de62953d40)
 #define BT_UUID_I2C_BRIDGE_TX_CHAR_VAL \
 	BT_UUID_128_ENCODE(0x5914f302, 0x2155, 0x43e8, 0xa446, 0x10de62953d40)
-
 #if defined(CONFIG_I2C_BRIDGE_AUTH_ENABLE)
 #define BT_UUID_I2C_BRIDGE_AUTH_CHAR_VAL \
 	BT_UUID_128_ENCODE(0x5914f303, 0x2155, 0x43e8, 0xa446, 0x10de62953d40)
 #endif
+#define BT_UUID_ADC_VOLTAGE_READING_VAL \
+	BT_UUID_128_ENCODE(0x5914f304, 0x2155, 0x43e8, 0xa446, 0x10de62953d40)
 
 #define BT_UUID_I2C_BRIDGE_SERVICE   BT_UUID_DECLARE_128(BT_UUID_I2C_BRIDGE_SRV_VAL)
 #define BT_UUID_I2C_BRIDGE_TX_CHAR   BT_UUID_DECLARE_128(BT_UUID_I2C_BRIDGE_TX_CHAR_VAL)
 #define BT_UUID_I2C_BRIDGE_RX_CHAR   BT_UUID_DECLARE_128(BT_UUID_I2C_BRIDGE_RX_CHAR_VAL)
+#define BT_UUID_ADC_VOLTAGE_READING  BT_UUID_DECLARE_128(BT_UUID_ADC_VOLTAGE_READING_VAL)
 
 #if defined(CONFIG_I2C_BRIDGE_AUTH_ENABLE)
 #define BT_UUID_I2C_BRIDGE_AUTH_CHAR BT_UUID_DECLARE_128(BT_UUID_I2C_BRIDGE_AUTH_CHAR_VAL)
 K_TIMER_DEFINE(auth_timeout, auth_timeout_expiry, NULL);
 #endif
 
-static bool notif_enabled;
-static bool authenticated = false;
 static void i2c_bridge_ccc_cfg_changed(const struct bt_gatt_attr *attr, uint16_t value) {
-	notif_enabled = (value == BT_GATT_CCC_NOTIFY);
-	LOG_INF("Central notifications enabled");
+	if (value == BT_GATT_CCC_NOTIFY) {
+		k_event_set_masked(&ble_conn_state_events, BLE_EVT_I2C_BRIDGE_NOTIFS_ENABLED, BLE_EVT_I2C_BRIDGE_NOTIFS_ENABLED);
+		LOG_INF("I2C bridge BLE central notifications enabled");
+	} else {
+		k_event_clear(&ble_conn_state_events, BLE_EVT_I2C_BRIDGE_NOTIFS_ENABLED);
+	}
 }
 
 K_MSGQ_DEFINE(ble_msgq, sizeof(struct ble_enc_packet), 16, 1);
@@ -87,11 +101,14 @@ ssize_t i2c_bridge_bt_chr_write(struct bt_conn *conn, const struct bt_gatt_attr 
 		LOG_ERR("Invalid packet size");
 		return -1;
 	}
-	if (authenticated) {
+	LOG_INF("%d", ble_conn_state_events.events);
+	if (k_event_test(&ble_conn_state_events, BLE_EVT_AUTHENTICATED)) {
+		LOG_INF("Got write");
 		k_msgq_put(&ble_msgq, (struct ble_enc_packet *)buf, K_NO_WAIT);
 		k_work_submit(&ble_decrypt_work);
 		return len;
 	} else {
+		LOG_ERR("Not authenticated");
 		return -1;
 	}
 }
@@ -124,7 +141,7 @@ static ssize_t i2c_bridge_write_auth(struct bt_conn *conn,
 		} else {
 			LOG_INF("Auth success");
 			k_timer_stop(&auth_timeout);
-			authenticated = true;
+			k_event_set_masked(&ble_conn_state_events, BLE_EVT_AUTHENTICATED, BLE_EVT_AUTHENTICATED);
 			return len;
 		}
 	} else {
@@ -132,6 +149,42 @@ static ssize_t i2c_bridge_write_auth(struct bt_conn *conn,
 	}
 }
 #endif
+
+static ssize_t adc_voltage_write_config(struct bt_conn *conn, 
+									 const struct bt_gatt_attr *attr,
+									 const void *buf,
+									 uint16_t len, uint16_t offset, uint8_t flags) {
+	if (len != sizeof(struct adc_config)) {
+		LOG_ERR("Invalid adc config length: %d", len);
+		return -1;
+	}
+
+	LOG_HEXDUMP_INF(buf, len, "adc config");
+	
+	const struct adc_config *config = (const struct adc_config *)buf;
+
+	LOG_INF("Sampling enabled: %b", config->sampling_enabled);
+	LOG_INF("Sampling rate ms: %d", config->sampling_rate_ms);
+	
+	if (config->sampling_enabled) {
+		k_timer_start(&adc_timer, K_MSEC(config->sampling_rate_ms), K_MSEC(config->sampling_rate_ms));
+		k_event_set_masked(&adc_events, ADC_SAMPLING_ENABLED, ADC_SAMPLING_ENABLED);
+	} else {
+		k_timer_stop(&adc_timer);
+		k_event_clear(&adc_events, ADC_SAMPLING_ENABLED);
+	}
+	
+	return len;	
+}
+
+static void adc_voltage_ccc_cfg_changed(const struct bt_gatt_attr *attr, uint16_t value) {
+	if (value == BT_GATT_CCC_NOTIFY) {
+		k_event_set_masked(&ble_conn_state_events, BLE_EVT_ADC_NOTIFS_ENABLED, BLE_EVT_ADC_NOTIFS_ENABLED);
+	} else {
+		k_event_clear(&ble_conn_state_events, BLE_EVT_ADC_NOTIFS_ENABLED);
+	}
+	LOG_INF("ADC central notifications enabled");
+}
 
 BT_GATT_SERVICE_DEFINE(i2c_bridge_svc,								   
 	BT_GATT_PRIMARY_SERVICE(BT_UUID_I2C_BRIDGE_SERVICE),						   
@@ -151,6 +204,12 @@ BT_GATT_SERVICE_DEFINE(i2c_bridge_svc,
 		BT_GATT_PERM_WRITE,
 		NULL, i2c_bridge_write_auth, NULL),
 #endif
+	BT_GATT_CHARACTERISTIC(BT_UUID_ADC_VOLTAGE_READING,						   
+		BT_GATT_CHRC_NOTIFY,								   
+		BT_GATT_PERM_WRITE,								   
+		NULL, adc_voltage_write_config, NULL),								   
+	BT_GATT_CCC(adc_voltage_ccc_cfg_changed,							   
+		BT_GATT_PERM_READ | BT_GATT_PERM_WRITE),					   
 );												   
 
 #define DEVICE_NAME		CONFIG_BT_DEVICE_NAME
@@ -176,6 +235,7 @@ static void connected(struct bt_conn *conn, uint8_t err)
 		return;
 	}
 
+	k_event_set_masked(&ble_conn_state_events, BLE_EVT_CONNECTED, BLE_EVT_CONNECTED);
 	LOG_INF("Connected %s", addr);
 
 #if defined(CONFIG_I2C_BRIDGE_AUTH_ENABLE)
@@ -191,7 +251,10 @@ static void disconnected(struct bt_conn *conn, uint8_t reason)
 	bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
 
 	current_connection = NULL;
-	authenticated = false;
+
+	k_timer_stop(&adc_timer);
+	k_event_clear(&ble_conn_state_events, BLE_EVT_CONNECTED);
+	k_event_clear(&ble_conn_state_events, BLE_EVT_AUTHENTICATED);
 	LOG_INF("Disconnected from %s (reason 0x%02x)", addr, reason);
 }
 
@@ -219,7 +282,7 @@ BT_CONN_CB_DEFINE(conn_callbacks) = {
 int i2c_bridge_transmit(struct ble_enc_packet *packet) {
 	int err;
 
-	if (authenticated && notif_enabled) {
+	if (k_event_test(&ble_conn_state_events, BLE_EVT_AUTHENTICATED & BLE_EVT_I2C_BRIDGE_NOTIFS_ENABLED)) {
 		err = bt_gatt_notify_uuid(current_connection, 
 								  BT_UUID_I2C_BRIDGE_TX_CHAR,
 								  attr_i2c_bridge_svc,
@@ -229,6 +292,23 @@ int i2c_bridge_transmit(struct ble_enc_packet *packet) {
 	} else {
 		return -1;
 	}
+	return err;
+}
+
+#include <zephyr/sys/byteorder.h>
+
+int adc_voltage_transmit(int32_t millivolts) {
+	int err;
+
+	uint8_t array[4] = sys_uint32_to_array((uint32_t)millivolts);
+
+	err = bt_gatt_notify_uuid(current_connection, 
+							  BT_UUID_ADC_VOLTAGE_READING,
+							  attr_i2c_bridge_svc,
+							  array,
+							  sizeof(array)
+	);
+
 	return err;
 }
 

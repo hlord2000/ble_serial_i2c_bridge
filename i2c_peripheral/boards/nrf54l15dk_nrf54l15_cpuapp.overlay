@@ -3,6 +3,10 @@
 		compatible = "data-ready";
 		gpios = <&gpio1 10 GPIO_ACTIVE_HIGH>;
 	};
+
+	zephyr,user {
+		io-channels = <&adc 0>;
+	};
 };
 
 &pinctrl {
@@ -55,4 +59,18 @@ twi_peripheral: &i2c22 {
 	pinctrl-0 = <&i2c22_default_alt>;
 	pinctrl-1 = <&i2c22_sleep_alt>;
 	pinctrl-names = "default", "sleep";
+};
+
+&adc {
+	#address-cells = <1>;
+	#size-cells = <0>;
+
+	channel@0 {
+		reg = <0>;
+		zephyr,gain = "ADC_GAIN_1_4";
+		zephyr,reference = "ADC_REF_INTERNAL";
+		zephyr,acquisition-time = <ADC_ACQ_TIME_DEFAULT>;
+		zephyr,input-positive = <NRF_SAADC_VDD>;
+		zephyr,resolution = <12>;
+	};
 };

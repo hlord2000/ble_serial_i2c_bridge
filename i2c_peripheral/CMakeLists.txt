@@ -6,6 +6,7 @@ target_sources(app PRIVATE
         src/i2c_registers.c
 		src/i2c_peripheral.c
 		src/ble_peripheral.c
+		src/adc.c
 		../common/src/crypto.c
 )
 

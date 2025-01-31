@@ -19,6 +19,7 @@ BT_UUID_I2C_BRIDGE_SVC = "5914f300-2155-43e8-a446-10de62953d40"
 BT_UUID_I2C_BRIDGE_RX_CHAR = "5914f301-2155-43e8-a446-10de62953d40"
 BT_UUID_I2C_BRIDGE_TX_CHAR = "5914f302-2155-43e8-a446-10de62953d40"
 BT_UUID_I2C_BRIDGE_AUTH_CHAR = "5914f303-2155-43e8-a446-10de62953d40"
+BT_UUID_ADC_VOLTAGE_READING_CHAR = "5914f304-2155-43e8-a446-10de62953d40"
 
 def int_of_string(s):
     return int(binascii.hexlify(s), 16)
@@ -44,6 +45,11 @@ def create_ble_packet(ciphertext, nonce):
     packet = struct.pack(f"{BLE_PACKET_BYTES}s{NONCE_SIZE_BYTES}s",
                          ciphertext, nonce)
     return packet
+
+def create_adc_command(sample_rate_ms, enable):
+    # Pack the command: exactly 5 bytes
+    # 4 bytes for sample_rate (uint32) + 1 byte for enable flag (uint8)
+    return struct.pack('<IB', sample_rate_ms, 1 if enable else 0)
 
 def scan_and_select_adapter():
     adapters = simplepyble.Adapter.get_adapters()
@@ -97,23 +103,48 @@ def authenticate_device(peripheral, key):
         peripheral.write_request(BT_UUID_I2C_BRIDGE_SVC, BT_UUID_I2C_BRIDGE_AUTH_CHAR, packet)
     except:
         print("exception on write")
-    print("Authentication packet sent.")
+    print("Authentication packets sent.")
 
 # Key for encryption
 key = bytes([0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 
              0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10])
 
 def subscribe_to_notifications(peripheral):
-    def notification_callback(data):
-        msg = decrypt_message(data[17:], data[0:17], key)
+    def i2c_notification_callback(data):
+        try:
+            msg = decrypt_message(data[17:], data[0:17], key)
+            print()
+            print("Received I2C Bridge Notification")
+            print(f"Decrypted message: {msg}")
+        except Exception as e:
+            print(f"Error decoding I2C notification: {e}")
+            print(f"Raw data: {data.hex()}")
+
+    def adc_notification_callback(data):
         print()
-        print("Recevied BLE Notification")
-        print(f"Ciphertext: \r\n{data}")
-        print(f"Plaintext: \r\n{msg}")
+        print("Received ADC Notification")
+        print(f"Raw data: {data.hex()}")
 
     print("Subscribing to notifications...")
-    peripheral.notify(BT_UUID_I2C_BRIDGE_SVC, BT_UUID_I2C_BRIDGE_TX_CHAR, notification_callback)
+    print(f"- I2C Bridge TX characteristic: {BT_UUID_I2C_BRIDGE_TX_CHAR}")
+    print(f"- ADC characteristic: {BT_UUID_ADC_VOLTAGE_READING_CHAR}")
+    
+    peripheral.notify(BT_UUID_I2C_BRIDGE_SVC, BT_UUID_I2C_BRIDGE_TX_CHAR, i2c_notification_callback)
+    peripheral.notify(BT_UUID_I2C_BRIDGE_SVC, BT_UUID_ADC_VOLTAGE_READING_CHAR, adc_notification_callback)
     print("Subscribed to notifications.")
+
+def send_adc_command(peripheral, sample_rate_ms, enable):
+    try:
+        command = create_adc_command(sample_rate_ms, enable)
+        print()
+        print("Sending ADC command")
+        print(f"Sample rate: {sample_rate_ms}ms, Enable: {enable}")
+        print(f"Raw command bytes: {command.hex()}")
+        
+        peripheral.write_request(BT_UUID_I2C_BRIDGE_SVC, BT_UUID_ADC_VOLTAGE_READING_CHAR, command)
+        print("ADC command sent successfully")
+    except Exception as e:
+        print(f"Error sending ADC command: {e}")
 
 def main():
     adapter = scan_and_select_adapter()
@@ -132,23 +163,49 @@ def main():
     subscribe_to_notifications(device)
 
     print("\nDevice is ready for communication.")
-    print("You can now send data to the RX characteristic.")
+    print("Commands:")
+    print("1. Send message (enter: msg <text>)")
+    print("2. Configure ADC (enter: adc <sample_rate_ms> <enable>)")
+    print("3. Quit (enter: q)")
     
     try:
         while True:
-            message = input("Enter message to send (or 'q' to quit): ")
-            if message.lower() == 'q':
+            command = input("Enter command: ").strip()
+            if command.lower() == 'q':
                 break
-            try:
-                nonce, ciphertext = encrypt_message(message, key)
-                packet = create_ble_packet(ciphertext, nonce)
-                device.write_request(BT_UUID_I2C_BRIDGE_SVC, BT_UUID_I2C_BRIDGE_RX_CHAR, packet)
-                print()
-                print("Writing BLE message")
-                print(f"Plaintext: \r\n{message}")
-                print(f"Ciphertext: \r\n{packet}")
-            except:
-                pass
+                
+            parts = command.split()
+            if not parts:
+                continue
+                
+            if parts[0] == 'msg':
+                message = ' '.join(parts[1:])
+                try:
+                    nonce, ciphertext = encrypt_message(message, key)
+                    packet = create_ble_packet(ciphertext, nonce)
+                    device.write_request(BT_UUID_I2C_BRIDGE_SVC, BT_UUID_I2C_BRIDGE_RX_CHAR, packet)
+                    print()
+                    print("Writing BLE message")
+                    print(f"Plaintext: \r\n{message}")
+                    print(f"Ciphertext: \r\n{packet}")
+                except Exception as e:
+                    print(f"Error sending message: {e}")
+                    
+            elif parts[0] == 'adc':
+                if len(parts) != 3:
+                    print("Usage: adc <sample_rate_ms> <enable>")
+                    continue
+                try:
+                    sample_rate = int(parts[1])
+                    enable = bool(int(parts[2]))
+                    send_adc_command(device, sample_rate, enable)
+                except ValueError:
+                    print("Invalid parameters. Sample rate must be an integer and enable must be 0 or 1")
+                except Exception as e:
+                    print(f"Error configuring ADC: {e}")
+            else:
+                print("Unknown command")
+                
     except KeyboardInterrupt:
         print("\nInterrupted by user.")
     finally:
