@@ -205,7 +205,7 @@ BT_GATT_SERVICE_DEFINE(i2c_bridge_svc,
 		NULL, i2c_bridge_write_auth, NULL),
 #endif
 	BT_GATT_CHARACTERISTIC(BT_UUID_ADC_VOLTAGE_READING,						   
-		BT_GATT_CHRC_NOTIFY,								   
+		BT_GATT_CHRC_WRITE | BT_GATT_CHRC_NOTIFY,								   
 		BT_GATT_PERM_WRITE,								   
 		NULL, adc_voltage_write_config, NULL),								   
 	BT_GATT_CCC(adc_voltage_ccc_cfg_changed,							   
