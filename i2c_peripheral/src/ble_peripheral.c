@@ -1,4 +1,5 @@
 #include <zephyr/kernel.h>
+#include <zephyr/sys/byteorder.h>
 #include <zephyr/settings/settings.h>
 #include <zephyr/bluetooth/gatt.h>
 #include <zephyr/bluetooth/bluetooth.h>
@@ -36,7 +37,6 @@ static void auth_timeout_expiry(struct k_timer *timer) {
 	k_event_clear(&ble_conn_state_events, BLE_EVT_AUTHENTICATED);
 }
 #endif
-
 
 #define BT_UUID_I2C_BRIDGE_SRV_VAL \
 	BT_UUID_128_ENCODE(0x5914f300, 0x2155, 0x43e8, 0xa446, 0x10de62953d40)
@@ -180,10 +180,11 @@ static ssize_t adc_voltage_write_config(struct bt_conn *conn,
 static void adc_voltage_ccc_cfg_changed(const struct bt_gatt_attr *attr, uint16_t value) {
 	if (value == BT_GATT_CCC_NOTIFY) {
 		k_event_set_masked(&ble_conn_state_events, BLE_EVT_ADC_NOTIFS_ENABLED, BLE_EVT_ADC_NOTIFS_ENABLED);
+		LOG_INF("ADC central notifications enabled");
 	} else {
+		LOG_INF("ADC CCC val: %d", value);
 		k_event_clear(&ble_conn_state_events, BLE_EVT_ADC_NOTIFS_ENABLED);
 	}
-	LOG_INF("ADC central notifications enabled");
 }
 
 BT_GATT_SERVICE_DEFINE(i2c_bridge_svc,								   
@@ -282,7 +283,8 @@ BT_CONN_CB_DEFINE(conn_callbacks) = {
 int i2c_bridge_transmit(struct ble_enc_packet *packet) {
 	int err;
 
-	if (k_event_test(&ble_conn_state_events, BLE_EVT_AUTHENTICATED & BLE_EVT_I2C_BRIDGE_NOTIFS_ENABLED)) {
+	LOG_INF("Testing if BLE_EVT_AUTHENTICATED | BLE_EVT_I2C_BRIDGE_NOTIFS_ENABLED set: %d, %d", BLE_EVT_AUTHENTICATED | BLE_EVT_I2C_BRIDGE_NOTIFS_ENABLED, ble_conn_state_events.events);
+	if (k_event_test(&ble_conn_state_events, BLE_EVT_AUTHENTICATED | BLE_EVT_I2C_BRIDGE_NOTIFS_ENABLED)) {
 		err = bt_gatt_notify_uuid(current_connection, 
 								  BT_UUID_I2C_BRIDGE_TX_CHAR,
 								  attr_i2c_bridge_svc,
@@ -290,12 +292,11 @@ int i2c_bridge_transmit(struct ble_enc_packet *packet) {
 								  sizeof(struct ble_enc_packet)
 		);
 	} else {
+		LOG_ERR("Notifications for I2C bridge not enabled");
 		return -1;
 	}
 	return err;
 }
-
-#include <zephyr/sys/byteorder.h>
 
 int adc_voltage_transmit(int32_t millivolts) {
 	int err;
@@ -337,3 +338,27 @@ int ble_init(void)
 	return 0;
 }
 SYS_INIT(ble_init, APPLICATION, 99);
+
+/* Thread stack size */
+#define STACK_SIZE 1024
+/* Thread priority */
+#define THREAD_PRIORITY 7
+
+/* Thread function */
+void ble_event_monitor(void *p1, void *p2, void *p3)
+{
+    ARG_UNUSED(p1);
+    ARG_UNUSED(p2);
+    ARG_UNUSED(p3);
+
+    while (1) {
+        uint32_t current_events = ble_conn_state_events.events;
+        LOG_INF("BLE connection state events: 0x%08x", current_events);
+        k_sleep(K_SECONDS(1));
+    }
+}
+
+/* Define the thread */
+K_THREAD_DEFINE(ble_monitor_id, STACK_SIZE,
+                ble_event_monitor, NULL, NULL, NULL,
+                THREAD_PRIORITY, 0, 0);
