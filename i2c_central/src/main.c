@@ -82,7 +82,11 @@ static void read_work_handler(struct k_work *work)
 	struct i2c_reg_packet plaintext;
 	LOG_INF("I2C Packet");
     i2c_bridge_read(&plaintext, I2C_REG_RX_BUF);
+#if defined(CONFIG_BSIB_I2C_ENCRYPTION)
 	LOG_HEXDUMP_INF(plaintext.plaintext, sizeof(plaintext.plaintext), "Plaintext: ");
+#else 
+	LOG_HEXDUMP_INF(plaintext.data, sizeof(plaintext.data), "Plaintext: ");
+#endif
 }
 
 K_WORK_DEFINE(read_work, read_work_handler);
@@ -213,7 +217,11 @@ static int cmd_read_rx_reg(const struct shell *shell, size_t argc, char **argv)
         return result;
     }
 	shell_print(shell, "Plaintext: ");
+#if defined(CONFIG_BSIB_I2C_ENCRYPTION)
 	shell_hexdump(shell, plaintext.plaintext, sizeof(plaintext.plaintext));
+#else
+	shell_hexdump(shell, plaintext.data, sizeof(plaintext.data));
+#endif
     return 0;
 }
 
@@ -246,7 +254,6 @@ int main(void)
 		  		data_ready.port->name, data_ready.pin);
 	}
 
-	#if 0
 	err = gpio_pin_interrupt_configure_dt(&data_ready, GPIO_INT_EDGE_TO_ACTIVE);
 	if (err < 0) {
 		LOG_ERR("Failed (err: %d) to configure interrupt on %s pin %d", err,
@@ -255,6 +262,6 @@ int main(void)
 
 	gpio_init_callback(&data_ready_cb_data, data_ready_cb, BIT(data_ready.pin));
 	gpio_add_callback(data_ready.port, &data_ready_cb_data);
-	#endif
+
     return 0;
 }
