@@ -225,6 +225,16 @@ static const struct bt_data sd[] = {
 	BT_DATA_BYTES(BT_DATA_UUID128_ALL, BT_UUID_I2C_BRIDGE_SRV_VAL),
 };
 
+static void start_advertising(void) {
+	int err;
+
+	err = bt_le_adv_start(BT_LE_ADV_CONN_FAST_2, ad, ARRAY_SIZE(ad), sd, ARRAY_SIZE(sd));
+	if (err) {
+		LOG_ERR("Failed to start advertising: %d", err);
+		return;
+	}
+}
+
 static void connected(struct bt_conn *conn, uint8_t err)
 {
 	char addr[BT_ADDR_LE_STR_LEN];
@@ -233,6 +243,8 @@ static void connected(struct bt_conn *conn, uint8_t err)
 
 	if (err) {
 		LOG_ERR("Failed to connect to %s (%u)", addr, err);
+		bt_conn_unref(current_connection);
+		current_connection = NULL;
 		return;
 	}
 
@@ -243,6 +255,11 @@ static void connected(struct bt_conn *conn, uint8_t err)
 	k_timer_start(&auth_timeout, K_SECONDS(CONFIG_I2C_BRIDGE_AUTH_TIMEOUT), K_NO_WAIT);
 #endif
 	current_connection = conn;
+
+	err = bt_le_adv_stop();
+	if (err) {
+		LOG_INF("Failed to stop advertising");
+	}
 }
 
 static void disconnected(struct bt_conn *conn, uint8_t reason)
@@ -251,12 +268,15 @@ static void disconnected(struct bt_conn *conn, uint8_t reason)
 
 	bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
 
+	bt_conn_unref(current_connection);
 	current_connection = NULL;
 
 	k_timer_stop(&adc_timer);
 	k_event_clear(&ble_conn_state_events, BLE_EVT_CONNECTED);
 	k_event_clear(&ble_conn_state_events, BLE_EVT_AUTHENTICATED);
 	LOG_INF("Disconnected from %s (reason 0x%02x)", addr, reason);
+
+	start_advertising();
 }
 
 static void security_changed(struct bt_conn *conn, bt_security_t level,
@@ -327,11 +347,7 @@ int ble_init(void)
 		return err;
 	}
 
-	err = bt_le_adv_start(BT_LE_ADV_CONN, ad, ARRAY_SIZE(ad), sd, ARRAY_SIZE(sd));
-	if (err) {
-		LOG_ERR("Failed to start advertising: %d", err);
-		return err;
-	}
+	start_advertising();
 
 	LOG_INF("Initialization complete");
 
