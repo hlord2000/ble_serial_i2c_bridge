@@ -39,8 +39,8 @@ west flash
 ## Hardware Connections
 | Function          | Peripheral | Central |
 |-------------------|------------|---------|
-| SCL               | P1.12      | P1.12   |
-| SDA               | P1.14      | P1.14   |
+| SCL               | P1.14      | P1.14   |
+| SDA               | P1.12      | P1.12   |
 | INT               | P1.10      | P1.10   |
 
 **It is critical that the VDDIO of the I2C central is the same as the VDDIO of the nRF54L15-DK**
