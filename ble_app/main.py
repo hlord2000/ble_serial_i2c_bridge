@@ -174,16 +174,36 @@ def scan_and_select_adapter():
         log("No Bluetooth adapters found.")
         return None
 
-    log("Available Bluetooth adapters:")
-    for i, adapter in enumerate(adapters):
-        log(f"{i}: {adapter.identifier()} [{adapter.address()}]")
+    print("Available Bluetooth adapters:")
+    for i, adapter_obj in enumerate(adapters): # Renamed 'adapter' to 'adapter_obj' to avoid confusion
+        try:
+            identifier = adapter_obj.identifier()
+            address = adapter_obj.address()
+            print(f"{i}: {identifier} [{address}]")
+        except RuntimeError as e:
+            # Attempt to get the identifier separately for logging, if possible
+            error_identifier = "unknown"
+            try:
+                error_identifier = adapter_obj.identifier()
+            except Exception:
+                pass # Keep 'unknown' if identifier also fails
+            print(f"Warning: Could not retrieve full details for an adapter (possibly {error_identifier} at index {i}): {e}")
+        except Exception as e: # Catch any other potential error during adapter info retrieval
+            print(f"Warning: An unexpected error occurred while retrieving details for adapter at index {i}: {e}")
 
-    # Assuming the first adapter is the desired one, or add logic to select
-    if adapters:
-        log(f"Selecting adapter 0: {adapters[0].identifier()} [{adapters[0].address()}]")
+
+    # The original logic returns adapters[0].
+    # Since the printout shows '0: hci0 [...]' was successful,
+    # adapters[0] is likely the correct and functional adapter.
+    if adapters: # Ensure adapters list is not empty before accessing adapters[0]
         return adapters[0]
-    return None
-
+    else:
+        # This case should ideally be caught by the initial 'if not adapters:'
+        # but as a safeguard if the list became empty due to previous errors
+        # and we modified the logic to filter them out (which we haven't here,
+        # we are just suppressing print errors).
+        print("No valid adapters available after attempting to list.")
+        return None
 
 def scan_for_devices(adapter):
     """Scans for peripherals and returns the list."""
